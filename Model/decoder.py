@@ -80,18 +80,18 @@ class BilinearBlockDiagMetapathDecoder(nn.Module):
 
 class BoxDecoder(nn.Module):
 
-    def __init__(self, relations, feat_dims, spa_embed_dim):
+    def __init__(self, relations, feat_embed_dim, spa_embed_dim):
         """
        Args:
            relations: a dict() of all triple templates
                key:    domain entity type
                value:  a list of tuples (range entity type, predicate)
-           feat_dims: a dict(), node type => embed_dim of feature embedding
+           feat_embed_dim: the embed_dim of feature embedding
            spa_embed_dim: the embed_dim of position embedding
        """
         super(BoxDecoder, self).__init__()
         self.relations = relations
-        self.feat_dims = feat_dims
+        self.feat_embed_dim = feat_embed_dim
         self.spa_embed_dim = spa_embed_dim
 
         self.feat_mats = {}
@@ -102,7 +102,7 @@ class BoxDecoder(nn.Module):
         for r1 in relations:
             for r2 in relations[r1]:
                 rel = (r1, r2[1], r2[0])
-                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_dims[rel[0]], feat_dims[rel[2]]))
+                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_embed_dim, feat_embed_dim))
                 nn.init.xavier_uniform_(self.feat_mats[rel])
                 self.register_parameter("feat-" + "_".join(rel), self.feat_mats[rel])
 
@@ -110,42 +110,15 @@ class BoxDecoder(nn.Module):
                 nn.init.xavier_uniform_(self.pos_mats[rel])
                 self.register_parameter("pos-" + "_".join(rel), self.pos_mats[rel])
 
-                self.rel_offset_embeddings[rel] = nn.Parameter(torch.FloatTensor(feat_dims[rel[0]] + spa_embed_dim, feat_dims[rel[2]] + spa_embed_dim))
+                self.rel_offset_embeddings[rel] = nn.Parameter(torch.FloatTensor(feat_embed_dim + spa_embed_dim, feat_embed_dim + spa_embed_dim))
                 nn.init.xavier_uniform_(self.rel_offset_embeddings[rel])
                 self.register_parameter('off-' + '_'.join(rel), self.rel_offset_embeddings[rel])
 
-    def forward(self, embeddings, rels):
-        """
-        embeddings,targets shape: [embed_dim, batch_size]
-        rels: a list of triple templates, an n-length metapath
-        """
-        # embeddings: [batch_size, embed_dim]
-        embeddings = embeddings.t()
-
-        # Create the offset embeddings for the entity
-        offset_embeddings = torch.zeros_like(embeddings)
-
-        # For each relation in the chain add up the center embeddings and the offset embeddings
-        for i_rel in rels:
-            # Create the relation embedding by concatenating the feature and position embeddings
-            rel_embeddings = torch.cat([self.feat_mats[i_rel], self.pos_mats[i_rel]])
-
-            # Add up the centers
-            embeddings += rel_embeddings
-
-            # Add up the offsets
-            offset_embeddings += self.sigmoid(self.rel_offset_embeddings)
-
-        return embeddings, offset_embeddings
-
-    def project(self, embeddings, rel):
+    def forward(self, embeddings, offset_embeddings, rel):
         """
         embeds shape: [embed_dim, batch_size]
         rel: triple template
         """
-        # Create the offset embeddings for the entity
-        offset_embeddings = torch.zeros_like(embeddings)
-
         # Create the relation embedding by concatenating the feature and position embeddings
         rel_embeddings = torch.cat([self.feat_mats[rel], self.pos_mats[rel]])
 
@@ -219,6 +192,40 @@ class CenterIntersection(nn.Module):
 
         return embedding
 
+
+class BoxCenterIntersectAttention(nn.Module):
+
+    def __init__(self, out_dims, types, num_attn):
+        super(BoxCenterIntersectAttention, self).__init__()
+        self.out_dims = out_dims
+        self.num_attn = num_attn
+        self.activation = nn.LeakyReLU
+        self.f_activation = nn.Sigmoid
+        self.softmax = nn.Softmax(dim=0)
+
+        self.attn_vecs = {}
+        self.norms = {}
+
+        for type in types:
+            self.norms[type] = LayerNorm(out_dims)
+            self.add_module(type + "_ln", self.norms[type])
+
+            # each column represent an attention vector for one attention head: [embed_dim*2, num_attn]
+            self.atten_vecs[type] = nn.Parameter(torch.FloatTensor(2*out_dims, self.num_attn))
+            nn.init.xavier_uniform_(self.atten_vecs[type])
+            self.register_parameter(type + "_attenvecs", self.atten_vecs[type])
+
+    def forward(self, embeddings, type):
+        attention = torch.einsum("nbd,dk->nbk", (embeddings, self.atten_vecs[type]))
+        attention = self.activation(attention)
+        attention = self.softmax(attention)
+
+        combined = torch.einsum("bkn,bnd->bkd", (attention, embeddings))
+        combined = self.f_activation(combined)
+        combined = combined + embeddings
+        combined = self.norms[type](combined)
+        return combined
+        
 
 """ Attention method used for query attention learning """
 

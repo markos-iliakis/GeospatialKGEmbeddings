@@ -1,5 +1,5 @@
 import re
-
+import torch.nn.functional as F
 import torch
 from numpy import random
 from torch import nn
@@ -15,7 +15,7 @@ class QueryEncoderDecoder(nn.Module):
     Encoder decoder model that reasons about edges, meta-paths and intersections
     """
 
-    def __init__(self, graph, enc, path_dec, inter_dec, inter_attn, use_inter_node=False):
+    def __init__(self, graph, enc, path_dec, inter_dec_cen, inter_dec_off, use_inter_node=False):
         """
         Args:
             graph: the Graph() object
@@ -26,15 +26,17 @@ class QueryEncoderDecoder(nn.Module):
             use_inter_node: Whether we use the True nodes in the intersection attention as the query embedding to train the QueryEncoderDecoder
         """
         super(QueryEncoderDecoder, self).__init__()
+        self.cen = 0.02  # Hyperparameter that balances the in-box distance and the out-box distance
+        self.gamma = nn.Parameter(torch.Tensor([24]), requires_grad=False)
         self.enc = enc
         self.path_dec = path_dec
-        self.inter_dec = inter_dec
-        self.inter_attn = inter_attn
+        self.inter_dec_cen = inter_dec_cen
+        self.inter_dec_off = inter_dec_off
         self.graph = graph
         self.cos = nn.CosineSimilarity(dim=0)
         self.use_inter_node = use_inter_node
 
-    def forward(self, formula, queries, source_nodes, do_modelTraining=False):
+    def forward(self, formula, queries, source_nodes):
         """
         Args:
             formula: a Formula() object
@@ -45,94 +47,161 @@ class QueryEncoderDecoder(nn.Module):
             scores: a list of cosine scores with length len(queries)
         """
         if formula.query_type in ["1-chain", "2-chain", "3-chain"]:
+            # o->t       ((t, p1, a1))
+            # o->o->t    ((t, p1, e1),(e1, p2, a1))
+            # o->o->o->t ((t, p1, e1),(e1, p2, e2),(e2, p3, a1))
 
-            reverse_rels = tuple([self.graph._reverse_relation(formula.rels[i]) for i in range(len(formula.rels) - 1, -1, -1)])
+            # Encode the target variable
+            target_embeds = self.enc(source_nodes, formula.target_type)
 
-            return self.path_dec.forward(
-                self.enc.forward([query.anchor_nodes[0] for query in queries], formula.anchor_types[0]),
-                self.enc.forward(source_nodes, formula.target_type), reverse_rels)
+            # Count the number of edges
+            num_edges = int(formula.query_type.replace("-chain", ""))
+
+            # Encode the anchor node
+            embeds = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
+
+            # Create the offset embeddings for the entity
+            offset_embeddings = torch.zeros_like(embeds)
+
+            # Project the anchor node a1 and each inter node ei through its relation pi and create the answer box
+            for i in range(0, num_edges):
+                embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
+
+            # Return the distance of the target from the box
+            return self.dist_box_score(target_embeds, embeds, offset_embeddings)
 
         elif formula.query_type == "3-inter_chain":
+            #        t<-o<-o  ((t, p2, e1), (e1, p3, a2))
+            #        ^
+            #        |
+            #        o        (t, p1, a1)
+
+            # Encode the target variable
             target_embeds = self.enc(source_nodes, formula.target_type)
 
-            # project the 1st anchor node to target node in rels: (t, p1, a1)
+            # Encode the 1st anchor node
             embeds1 = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
-            embeds1 = self.path_dec.project(embeds1, self.graph._reverse_relation(formula.rels[0]))
 
-            # project the 2nd anchor node to target node in rels:
+            # Create the offset embeddings for the 1st anchor node
+            offset_embeddings1 = torch.zeros_like(embeds1)
+
+            # Project the 1st anchor node a1 through its relation p1 (t, p1, a1) creating the answer box
+            embeds1, offset_embeddings1 = self.path_dec(embeds1, offset_embeddings1, self.graph._reverse_relation(formula.rels[0]))
+
+            # Encode the 2nd anchor node
             embeds2 = self.enc([query.anchor_nodes[1] for query in queries], formula.anchor_types[1])
-            # '3-inter_chain': project a2 to t by following ((t, p2, e1),(e1, p3, a2))
+
+            # Create the offset embeddings for the 2nd anchor node
+            offset_embeddings2 = torch.zeros_like(embeds2)
+
+            # Project the 2nd anchor node a2 and each inter node ei through its relation pi creating second answer box
             for i_rel in formula.rels[1][::-1]:  # loop the formula.rels[1] in the reverse order
-                embeds2 = self.path_dec.project(embeds2, self.graph._reverse_relation(i_rel))
+                embeds2, offset_embeddings2 = self.path_dec(embeds2, offset_embeddings2, self.graph._reverse_relation(i_rel))
 
-            query_intersection, embeds_inter = self.inter_dec([embeds1, embeds2])
+            # Intersect the 2 boxes
+            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1, embeds2]), formula.target_type)
+            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1, offset_embeddings2]))
 
-            # Apply Graph Attention
-            if self.use_inter_node and do_modelTraining:
-                # for 2-inter, 3-inter, 3-inter_chain, the inter node is target node
-                # we can use source_nodes
-                query_embeds = self.graph.features([query.target_node for query in queries],
-                                                   formula.target_type).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
-            else:
-                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_type)
+            # Return the distance of the target from the box
+            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
 
-            scores = self.cos(target_embeds, query_intersection)
-            return scores
         elif formula.query_type == "3-chain_inter":
+            #        t      (t, p1, e1)
+            #        ^
+            #        |
+            #     o->o<-o   ((e1, p2, a1), (e1, p3, a2))
+
+            # Encode the target variable
             target_embeds = self.enc(source_nodes, formula.target_type)
 
-            # project the 1st anchor node to inter node (e1, p2, a1)
+            # Encode the 1st anchor node
             embeds1 = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
-            embeds1 = self.path_dec.project(embeds1, self.graph._reverse_relation(formula.rels[1][0]))
 
-            # project the 2nd anchor node to inter node (e1, p3, a2)
+            # Create the offset embeddings for the 1st anchor node
+            offset_embeddings1 = torch.zeros_like(embeds1)
+
+            # Project the 1st anchor node a1 through its relation p2 to inter node e1 (e1, p2, a1) creating a box
+            embeds1, offset_embeddings1 = self.path_dec(embeds1, offset_embeddings1, self.graph._reverse_relation(formula.rels[1][0]))
+
+            # Encode the 2nd anchor node
             embeds2 = self.enc([query.anchor_nodes[1] for query in queries], formula.anchor_types[1])
-            embeds2 = self.path_dec.project(embeds2, self.graph._reverse_relation(formula.rels[1][1]))
 
-            # intersect different inter node (e1) embeddings
-            query_intersection, embeds_inter = self.inter_dec([embeds1, embeds2])
+            # Create the offset embeddings for the 2nd anchor node
+            offset_embeddings2 = torch.zeros_like(embeds2)
 
-            # Apply Graph Attention
-            if self.use_inter_node and do_modelTraining:
-                # for 3-chain_inter, the inter node is in the query_graph
-                inter_nodes = [query.query_graph[1][2] for query in queries]
-                inter_node_type = formula.rels[0][2]
-                query_embeds = self.graph.features(inter_nodes, inter_node_type).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
-            else:
-                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.rels[0][-1])
+            # Project the 2nd anchor node a2 through its relation p3 to inter node e1 (e1, p3, a2) creating a second box
+            embeds2, offset_embeddings2 = self.path_dec(embeds2, offset_embeddings2, self.graph._reverse_relation(formula.rels[1][1]))
 
-            query_intersection = self.path_dec.project(query_intersection, self.graph._reverse_relation(formula.rels[0]))
-            scores = self.cos(target_embeds, query_intersection)
-            return scores
+            # intersect the 2 boxes
+            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1, embeds2]), formula.rels[0])
+            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1, offset_embeddings2]))
+
+            # Project the inter node e1 through its relation p1 to the target node creating the answer box
+            query_intersection_cen, query_intersection_off = self.path_dec(query_intersection_cen, query_intersection_off, self.graph._reverse_relation(formula.rels[0]))
+
+            # Return the distance of the target from the box
+            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
+
         elif formula.query_type in ["2-inter", "3-inter"]:
-            # x-inter
+            # o->t<-o  ((t, p1, a1),(t, p2, a2))     o->t<-o  ((t, p1, a1),(t, p2, a2),(t, p3, a3))
+            #                                           ^
+            #                                           |
+            #                                           o
+
+            # Encode the target variable
             target_embeds = self.enc(source_nodes, formula.target_type)
+
+            # Count the number of edges
             num_edges = int(formula.query_type.replace("-inter", ""))
+
             embeds_list = []
+            offset_list = []
+            # For each anchor node ai project it through its relation pi to the target node creating an answer box
             for i in range(0, num_edges):
-                # project the ith anchor node to target node in rels: (t, pi, ai)
+                # Encode the anchor node
                 embeds = self.enc([query.anchor_nodes[i] for query in queries], formula.anchor_types[i])
-                embeds = self.path_dec.project(embeds, self.graph._reverse_relation(formula.rels[i]))
+
+                # Create the offset embeddings for the anchor node
+                offset_embeddings = torch.zeros_like(embeds)
+
+                # Project the anchor node ai through its relation pi to the target node creating an answer box
+                embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
+
                 embeds_list.append(embeds)
+                offset_list.append(offset_embeddings)
 
-            query_intersection, embeds_inter = self.inter_dec(embeds_list)
+            # Intersect the boxes
+            query_intersection_cen = self.inter_dec_cen(torch.stack(embeds_list), formula.target_type)
+            query_intersection_off = self.inter_dec_off(torch.stack(offset_list))
 
-            # Apply Graph Attention
-            if self.use_inter_node and do_modelTraining:
-                # for x-inter, the inter node is target node
-                # so we can use the real target node
-                query_embeds = self.graph.features([query.target_node for query in queries],
-                                                   formula.target_type).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
-            else:
-                # print ("DEBUG: ", query_intersection, embeds_inter)
-                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_type)
-                # print ("Done that !")
+            # Return the distance of the target from the box
+            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
 
-            scores = self.cos(target_embeds, query_intersection)
-            return scores
+    def dist_box_score(self, entity_embedding, query_center_embedding, query_offset_embedding):
+        delta = (entity_embedding - query_center_embedding).abs()
+        distance_out = F.relu(delta - query_offset_embedding)
+        distance_in = torch.min(delta, query_offset_embedding)
+        logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.cen * torch.norm(distance_in, p=1, dim=-1)
+        return logit
+
+    def box_loss(self, formula, queries, hard_negatives=False):
+        if hard_negatives:
+            neg_nodes = [random.choice(query.hard_neg_samples) for query in queries]
+        elif formula.query_type == "1-chain":
+            neg_nodes = [random.choice(self.graph.full_lists[formula.target_type]) for _ in queries]
+        else:
+            neg_nodes = [random.choice(query.neg_samples) for query in queries]
+
+        positive_logit = self.forward(formula, queries, [query.target_node for query in queries])
+        negative_logit = self.forward(formula, queries, neg_nodes)
+
+        negative_score = F.logsigmoid(-negative_logit).mean(dim=1)
+        positive_score = F.logsigmoid(positive_logit).squeeze(dim=1)
+        positive_sample_loss = - positive_score.sum()
+        negative_sample_loss = - negative_score.sum()
+        loss = (positive_sample_loss + negative_sample_loss) / 2
+
+        return loss
 
     def margin_loss(self, formula, queries, hard_negatives=False, margin=1):
         if "inter" not in formula.query_type and hard_negatives:
