@@ -6,8 +6,8 @@ import os
 
 import torch
 from rdflib import Graph, Literal, RDF, URIRef
-import MinimumBoundingBox as mbb
 from Yago2GeoDatasetHelpers.dataset_helper_functions import pickle_dump, read_custom_triples, find_node_maps
+from Yago2GeoDatasetHelpers.MinimumBoundingBox import minimum_bounding_box
 
 """ 
 Create files: 
@@ -163,7 +163,7 @@ def make_id_files(triples_path, geo_classes_path, out_path):
         #                ',')]
         polygon = [[float(n) for n in s.split(' ')] for s in re.findall('\-?\d*\.?\d+\s\-?\d*\.?\d+', id2geometry[id])]  # Take only the pairs of coordinates
         # polygon = [[float(coord) for coord in pair] for pair in polygon]  # Convert strings to floats
-        id2geometry[id] = mbb.minimum_bounding_box(polygon)
+        id2geometry[id] = minimum_bounding_box(polygon)
 
     with open(out_path + 'id2geo.json', 'w') as file:
         json.dump(id2geometry, file)
