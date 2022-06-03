@@ -56,6 +56,7 @@ def read_geo_classes(geo_classes_path, change_data=True):
     entity2type = {}
     entities_dict = {}
     doubles_dict = {}
+    entities_without_types = []
 
     for file in os.listdir(geo_classes_path):
         g = Graph()
@@ -74,8 +75,12 @@ def read_geo_classes(geo_classes_path, change_data=True):
             if entity in entities_dict:
                 doubles_dict[entity] = [entity, geometry]
                 continue
+            if entity not in entity2type.keys():
+                entities_without_types.append(entity)
+                continue
             entities_dict[entity] = [entity, entity2type[entity], geometry, geometry2polygon[geometry]]
 
+    print(f'These entities have no type: \n\t{entities_without_types}')
     entities_double = pd.DataFrame.from_dict(doubles_dict, orient='index', columns=['entity', 'geometry']).reset_index(drop=True).reset_index().rename(columns={'index': 'id'})
 
     entities = pd.DataFrame.from_dict(entities_dict, orient='index', columns=['entity', 'type', 'geometry', 'polygon']).reset_index(drop=True).reset_index().rename(columns={'index': 'id'})
@@ -115,6 +120,7 @@ def make_id_files(triples_path, geo_classes_path, out_path):
     # Create entity to id file
     print('Create entity to id file..')
     entities = entities_attributes[['entity', 'id']]
+    entities['id'] = entities['id'].map(str)
     entities.to_csv(out_path + 'entity2id.txt', index=False, sep=' ')
 
     # Create relation and inverses to id
@@ -122,10 +128,11 @@ def make_id_files(triples_path, geo_classes_path, out_path):
     relations = triples['relation'].drop_duplicates().reset_index(drop=True).reset_index().rename(
         columns={'index': 'id'})
     relations = relations[['relation', 'id']]
+    relations['id'] = relations['id'].map(str)
 
     rel = list(relations['relation'])
     for r in rel:
-        relations = relations.append({'relation': relation_inverse(r), 'id': len(relations)}, ignore_index=True)
+        relations = relations.append({'relation': relation_inverse(r), 'id': str(len(relations))}, ignore_index=True)
     relations.to_csv(out_path + 'relation2id.txt', index=False, sep=' ')
 
     # Create relation to inverse
@@ -141,7 +148,7 @@ def make_id_files(triples_path, geo_classes_path, out_path):
     print('Create relation id to inverse id..')
     relation_id2inverse_id = {}
     for i, [relation, id] in relations.iterrows():
-        relation_id2inverse_id[id] = relations[relations['relation'] == relation_inverse(relation)]['id'].item()
+        relation_id2inverse_id[str(id)] = str(relations[relations['relation'] == relation_inverse(relation)]['id'].item())
 
     with open(out_path + 'rid2inverse.json', 'w') as file:
         json.dump(relation_id2inverse_id, file)
@@ -155,23 +162,34 @@ def make_id_files(triples_path, geo_classes_path, out_path):
 
     # Create id to geometries
     print('Create id to geometries..')
-    id2geometry = dict(zip(entities_attributes['id'], entities_attributes['polygon']))
-    for id in id2geometry.keys():
-        print(f'Minimum bounding box for Geometry with id {id}')
+    id2polygon = dict(zip(entities_attributes['id'], entities_attributes['polygon']))
+    count = 0
+    id2geometry = dict()
+    for id in id2polygon.keys():
+        # print(f'Minimum bounding box for Geometry with id {id}')
         # polygon = [coord_pair.lstrip().split(' ') for coord_pair in
         #            id2geometry[id].split('((')[1].split('))')[0].replace('(', '').replace(')', '').split(
         #                ',')]
-        polygon = [[float(n) for n in s.split(' ')] for s in re.findall('\-?\d*\.?\d+\s\-?\d*\.?\d+', id2geometry[id])]  # Take only the pairs of coordinates
+        polygon = [[float(n) for n in s.split(' ')] for s in re.findall('\-?\d*\.?\d+\s\-?\d*\.?\d+', id2polygon[id])]  # Take only the pairs of coordinates
         # polygon = [[float(coord) for coord in pair] for pair in polygon]  # Convert strings to floats
-        id2geometry[id] = minimum_bounding_box(polygon)
+        if len(polygon) <= 2:
+            count += 1
+            print(f'Polygons smaller than 2 points : {count}')
+            continue
+        id2geometry[str(id)] = minimum_bounding_box(polygon)
 
     with open(out_path + 'id2geo.json', 'w') as file:
         json.dump(id2geometry, file)
 
     # Create entity to type
     print('Create entity to type..')
-    entity2type = entities_attributes[['entity', 'type']]
-    entity2type.to_json(out_path + 'entity2type.json', index=False)
+    with open(out_path + 'entity2type.json', 'w') as file:
+        json.dump(dict(zip(entities_attributes['entity'], entities_attributes['type'])), file)
+
+    # Create id to type
+    print('Create id to type..')
+    with open(out_path + 'id2type.json', 'w') as file:
+        json.dump(dict(zip(entities_attributes['id'], entities_attributes['type'])), file)
 
     return
 
@@ -195,11 +213,18 @@ def make_custom_triples(triples_path, classes_path, relationsID_path, entitiesID
         # for each relation find its head and tail classes and head relation tail id's
         custom_triples = list()
         for index, row in data.iterrows():
+            if index < 0:
+                continue
+            elif index % 10000 == 0:
+                df = pd.DataFrame(custom_triples)
+                df.to_csv(out_path + 'custom_triples.txt', index=False, sep='|', mode='a', header=False)
+                custom_triples = list()
+                print(f'Saved {index-1} triples')
             head_class = classes[row['head']]
             tail_class = classes[row['tail']]
-            relation_id = relations[relations.relation == row['relation']].id.values[0]
-            head_id = entities[entities.entity == row['head']].id.values[0]
-            tail_id = entities[entities.entity == row['tail']].id.values[0]
+            relation_id = str(relations[relations.relation == row['relation']].id.values[0])
+            head_id = str(entities[entities.entity == row['head']].id.values[0])
+            tail_id = str(entities[entities.entity == row['tail']].id.values[0])
 
             # (head_id, (head_class, relation_id, tail_class), tail_id)
             custom_triple = (head_id, (head_class, relation_id, tail_class), tail_id)
@@ -207,7 +232,10 @@ def make_custom_triples(triples_path, classes_path, relationsID_path, entitiesID
             custom_triples.append(custom_triple)
 
     df = pd.DataFrame(custom_triples)
-    df.to_csv(out_path + 'custom_triples.txt', index=False, sep='|')
+    df.columns = ['head_id', 'triple', 'tail_id']
+    df['head_id'] = df['head_id'].map(str)
+    df['tail_id'] = df['tail_id'].map(str)
+    df.to_csv(out_path + 'custom_triples.txt', index=False, sep='|', mode='a', header=False)
 
     return out_path + 'custom_triples.txt'
 
@@ -217,7 +245,7 @@ def custom_triples_split(triples_path, out_path):
     all_triples = pd.read_csv(triples_path, sep='|', header=None)
 
     all_triples.columns = ['head_id', 'triple', 'tail_id']
-    all_triples = [(row['head_id'], tuple([x.strip(" (')") for x in row['triple'].split(',')]), row['tail_id']) for
+    all_triples = [(str(row['head_id']), tuple([x.strip(" (')") for x in row['triple'].split(',')]), str(row['tail_id'])) for
                    index, row in all_triples.iterrows()]
 
     # Split triples to train / valid / test
@@ -226,6 +254,7 @@ def custom_triples_split(triples_path, out_path):
     test_triples = all_triples[int(0.8 * len(all_triples)) + 1:len(all_triples)]
 
     # Write them in pkl files
+
     pickle_dump(train_triples, out_path + 'train_triples.pkl')
     pickle_dump(val_triples, out_path + 'valid_triples.pkl')
     pickle_dump(test_triples, out_path + 'test_triples.pkl')
@@ -233,24 +262,30 @@ def custom_triples_split(triples_path, out_path):
     return
 
 
-def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, rid2inverse_path,
+def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, rid2inverse_path, id2type_path,
                embed_dim=64):
     custom_triples = read_custom_triples(custom_triples_path)
+    custom_triples = custom_triples[custom_triples['rel'] != 'triple']
+
+    print('Creating Graph..')
 
     with open(rid2inverse_path) as json_file:
         inv_rel_ids = json.load(json_file)
 
+    with open(id2type_path) as json_file:
+        id2type = json.load(json_file)
+
     adj_lists = dict()
     relations = dict()
-    for custom_triple in custom_triples.iterrows():
+    for index, custom_triple in custom_triples.iterrows():
         # Separate head, relation and tail
-        rel = custom_triple[1].rel.strip("(')").replace("'", "").replace(' ', '').split(',')  # (head_class, pred_id, tail_class)
+        rel = custom_triple[1].strip("(')").replace("'", "").replace(' ', '').split(',')  # (head_class, pred_id, tail_class)
         rel_inv = (rel[2], inv_rel_ids[rel[1]], rel[0])
 
         rel = tuple(rel)
 
-        head = custom_triple[1][0]  # head_id
-        tail = custom_triple[1][2]  # tail.id
+        head = str(custom_triple['head_id'])  # head_id
+        tail = str(custom_triple['tail_id'])  # tail.id
 
         # Create Adjacent Lists {(head_class, pred_id, Tail_class) : {head_id : [tail entity id's]}} and inverse
         if rel not in adj_lists:
@@ -301,6 +336,6 @@ def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, r
         # define embedding initialization method: normal dist
         feature_modules[e_type].weight.data.normal_(0, 1. / embed_dim)
 
-    pickle_dump([feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel_ids], graph_path)
+    pickle_dump([feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel_ids, id2type], graph_path)
 
     return

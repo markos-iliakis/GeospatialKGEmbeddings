@@ -10,7 +10,7 @@ def geo_lookup(nodes, id2geo, add_dim=-1, id2extent=None, do_extent_sample=False
     Given a list of node id, make a coordinate tensor
     Args:
         :param do_extent_sample: take random point in bounding box
-        :param id2extent: a dict(): node id -> (xmin, xmax, ymin, ymax)
+        :param id2extent: a dict(): node id -> [[xmax, ymax](northeast), [xmin, ymin](southwest)]
         :param id2geo: a dict(): node id -> [longitude, latitude]
         :param nodes: list of nodes id
         :param add_dim: add a dimension
@@ -22,7 +22,7 @@ def geo_lookup(nodes, id2geo, add_dim=-1, id2extent=None, do_extent_sample=False
     for i, eid in enumerate(nodes):
         if eid in id2extent:
             if do_extent_sample:
-                xmin, xmax, ymin, ymax = id2extent[eid]
+                [[xmax, ymax], [xmin, ymin]] = id2extent[eid]
                 x = random.uniform(xmin, xmax)
                 y = random.uniform(ymin, ymax)
                 coords = [x, y]
@@ -93,7 +93,7 @@ class TheoryGridCellSpatialRelationEncoder(nn.Module):
 
     def __init__(self, spa_embed_dim, coord_dim=2, frequency_num=16,
                  max_radius=10000, min_radius=1000, freq_init="geometric",
-                 ffn=None, device="cpu"):
+                 ffn=None):
         """
         Args:
             spa_embed_dim: the output spatial relation embedding dimension
@@ -113,7 +113,7 @@ class TheoryGridCellSpatialRelationEncoder(nn.Module):
         self.freq_list = self.cal_freq_list()
         self.freq_mat = self.cal_freq_mat()
 
-        # there unit vectors which is 120 degree apart from each other
+        # three unit vectors which is 120 degree apart from each other
         self.unit_vec1 = np.asarray([1.0, 0.0])  # 0
         self.unit_vec2 = np.asarray([-1.0 / 2.0, math.sqrt(3) / 2.0])  # 120 degree
         self.unit_vec3 = np.asarray([-1.0 / 2.0, -math.sqrt(3) / 2.0])  # 240 degree
@@ -121,8 +121,6 @@ class TheoryGridCellSpatialRelationEncoder(nn.Module):
         self.input_embed_dim = self.cal_input_dim()
 
         self.ffn = ffn
-
-        self.device = device
 
     def cal_freq_list(self):
         log_timescale_increment = (math.log(float(self.max_radius) / float(self.min_radius)) /
@@ -196,7 +194,7 @@ class TheoryGridCellSpatialRelationEncoder(nn.Module):
         spr_embeds = self.make_input_embeds(coords)
 
         # spr_embeds: (batch_size, num_context_pt, input_embed_dim)
-        spr_embeds = torch.FloatTensor(spr_embeds).to(self.device)
+        spr_embeds = torch.FloatTensor(spr_embeds).to('cuda')  # .to('cuda')
 
         return self.ffn(spr_embeds)
 
@@ -207,7 +205,7 @@ class ExtentPositionEncoder(nn.Module):
     Given a list of node ids, return their embedding
     """
 
-    def __init__(self, id2geo, id2extent, spa_enc, graph, device="cpu"):
+    def __init__(self, id2geo, id2extent, spa_enc, graph):
         """
         Args:
             out_dims: a dict()
@@ -225,7 +223,6 @@ class ExtentPositionEncoder(nn.Module):
         self.spa_embed_dim = spa_enc.spa_embed_dim  # the output space embedding
         self.spa_enc = spa_enc
         self.graph = graph
-        self.device = device
 
     def forward(self, nodes):
         """
@@ -255,18 +252,18 @@ class ExtentPositionEncoder(nn.Module):
 
 class NodeEncoder(nn.Module):
     """
-    This is the encoder for each entity or node which has two components"
+    This is the encoder for each entity or node which has two components
     1. feature encoder (DirectEncoder): feat_enc
     2. position encoder (PositionEncoder): pos_enc
     """
 
     def __init__(self, feat_enc, pos_enc, agg_type="add"):
-        '''
+        """
         Args:
             feat_enc:feature encoder
             pos_enc: position encoder
             agg_type: how to combine the feature embedding and space embedding of a node/entity
-        '''
+        """
         super(NodeEncoder, self).__init__()
         self.feat_enc = feat_enc
         self.pos_enc = pos_enc
@@ -275,7 +272,7 @@ class NodeEncoder(nn.Module):
             raise Exception("pos_enc and feat_enc are both None!!")
 
     def forward(self, nodes, mode, offset=None):
-        '''
+        """
         Args:
             nodes: a list of node ids
         Return:
@@ -286,14 +283,14 @@ class NodeEncoder(nn.Module):
                     shape [embed_dim, num_ent]
                 if agg_type == "concat":
                     shape [embed_dim + spa_embed_dim, num_ent]
-        '''
+        """
         if self.feat_enc is not None and self.pos_enc is not None:
             # we have both feature encoder and position encoder
 
-            # feat_embeds: [embed_dim, num_ent]
+            # feat_embeds: [embed_dim, batch_size]
             feat_embeds = self.feat_enc(nodes, mode, offset=offset)
 
-            # pos_embeds: [embed_dim, num_ent]
+            # pos_embeds: [embed_dim, batch_size]
             pos_embeds = self.pos_enc(nodes)
             if self.agg_type == "add":
                 embeds = feat_embeds + pos_embeds

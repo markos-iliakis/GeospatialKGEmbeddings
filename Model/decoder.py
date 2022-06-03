@@ -110,7 +110,7 @@ class BoxDecoder(nn.Module):
                 nn.init.xavier_uniform_(self.pos_mats[rel])
                 self.register_parameter("pos-" + "_".join(rel), self.pos_mats[rel])
 
-                self.rel_offset_embeddings[rel] = nn.Parameter(torch.FloatTensor(feat_embed_dim + spa_embed_dim, feat_embed_dim + spa_embed_dim))
+                self.rel_offset_embeddings[rel] = nn.Parameter(torch.FloatTensor(1, feat_embed_dim + spa_embed_dim))
                 nn.init.xavier_uniform_(self.rel_offset_embeddings[rel])
                 self.register_parameter('off-' + '_'.join(rel), self.rel_offset_embeddings[rel])
 
@@ -119,16 +119,20 @@ class BoxDecoder(nn.Module):
         embeds shape: [embed_dim, batch_size]
         rel: triple template
         """
-        # Create the relation embedding by concatenating the feature and position embeddings
-        rel_embeddings = torch.cat([self.feat_mats[rel], self.pos_mats[rel]])
 
-        # Add up the centers
-        embeddings += rel_embeddings
+        # Separate the feature and the position embeddings from the entity embedding
+        feat_act, pos_act = torch.split(embeddings.t(), [self.feat_embed_dim, self.spa_embed_dim], dim=1)
+
+        # Add up the center and its projection through the relation
+        feat_act = feat_act.clone().mm(self.feat_mats[rel])
+        pos_act = pos_act.clone().mm(self.pos_mats[rel])
+        embeddings += torch.cat([feat_act, pos_act], dim=1).t()
 
         # Add up the offsets
-        offset_embeddings += self.sigmoid(self.rel_offset_embeddings)
+        offset_embeddings_t = offset_embeddings.t()
+        offset_embeddings += self.sigmoid(self.rel_offset_embeddings[rel]).t()
 
-        return embeddings.t(), offset_embeddings.t()
+        return embeddings, offset_embeddings
 
 
 """ Intersection Operator """
@@ -166,6 +170,8 @@ class BoxOffsetIntersection(nn.Module):
         nn.init.xavier_uniform_(self.layer2.weight)
 
     def forward(self, embeddings):
+        # embeddings -> [box_centers, batch_size, embed_size]
+
         layer1_act = F.relu(self.layer1(embeddings))
         layer1_mean = torch.mean(layer1_act, dim=0)
         gate = torch.sigmoid(self.layer2(layer1_mean))
@@ -199,30 +205,39 @@ class BoxCenterIntersectAttention(nn.Module):
         super(BoxCenterIntersectAttention, self).__init__()
         self.out_dims = out_dims
         self.num_attn = num_attn
-        self.activation = nn.LeakyReLU
-        self.f_activation = nn.Sigmoid
+        self.activation = nn.LeakyReLU()
+        self.f_activation = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-        self.attn_vecs = {}
+        self.atten_vecs = {}
         self.norms = {}
 
         for type in types:
             self.norms[type] = LayerNorm(out_dims)
             self.add_module(type + "_ln", self.norms[type])
 
-            # each column represent an attention vector for one attention head: [embed_dim*2, num_attn]
-            self.atten_vecs[type] = nn.Parameter(torch.FloatTensor(2*out_dims, self.num_attn))
+            # each column represent an attention vector for one attention head: [embed_dim, num_attn]
+            self.atten_vecs[type] = nn.Parameter(torch.FloatTensor(out_dims, self.num_attn))
             nn.init.xavier_uniform_(self.atten_vecs[type])
             self.register_parameter(type + "_attenvecs", self.atten_vecs[type])
 
     def forward(self, embeddings, type):
-        attention = torch.einsum("nbd,dk->nbk", (embeddings, self.atten_vecs[type]))
+        # embeddings -> [box_centers, batch_size, embed_size]
+        # c -> centers, e -> embed_size {128}, b -> batch_size, a -> attention heads {1}
+        # Create the attention for each center / attention -> [centers, batch_size, attention_heads_num]
+        attention = torch.einsum("cbe,ea->cba", (embeddings, self.atten_vecs[type]))
         attention = self.activation(attention)
         attention = self.softmax(attention)
 
-        combined = torch.einsum("bkn,bnd->bkd", (attention, embeddings))
+        # Perform the attention over the embedding / combined -> [batch_size, attention_heads, embed_size]
+        combined = torch.einsum("cba,cbe->bae", (attention, embeddings))
+
+        # Sum up all the attention heads / combined -> [batch_size, embed_size]
+        combined = torch.sum(combined, dim=1, keepdim=False) * (1.0 / self.num_attn)
+
         combined = self.f_activation(combined)
-        combined = combined + embeddings
+
+        # Normalize as per type
         combined = self.norms[type](combined)
         return combined
         

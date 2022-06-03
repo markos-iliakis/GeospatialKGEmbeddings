@@ -51,13 +51,13 @@ class QueryEncoderDecoder(nn.Module):
             # o->o->t    ((t, p1, e1),(e1, p2, a1))
             # o->o->o->t ((t, p1, e1),(e1, p2, e2),(e2, p3, a1))
 
-            # Encode the target variable
+            # Encode the target variable / target_embeds -> [embed_size, batch_size]
             target_embeds = self.enc(source_nodes, formula.target_type)
 
             # Count the number of edges
             num_edges = int(formula.query_type.replace("-chain", ""))
 
-            # Encode the anchor node
+            # Encode the anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
             embeds = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
 
             # Create the offset embeddings for the entity
@@ -65,10 +65,11 @@ class QueryEncoderDecoder(nn.Module):
 
             # Project the anchor node a1 and each inter node ei through its relation pi and create the answer box
             for i in range(0, num_edges):
+                # embeds, offset_embeddings -> [embed_size {128}, batch_size]
                 embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
 
             # Return the distance of the target from the box
-            return self.dist_box_score(target_embeds, embeds, offset_embeddings)
+            return self.dist_box_logit(target_embeds, embeds.t(), offset_embeddings.t())
 
         elif formula.query_type == "3-inter_chain":
             #        t<-o<-o  ((t, p2, e1), (e1, p3, a2))
@@ -76,34 +77,35 @@ class QueryEncoderDecoder(nn.Module):
             #        |
             #        o        (t, p1, a1)
 
-            # Encode the target variable
+            # Encode the target variable / target_embeds -> [embed_size, batch_size]
             target_embeds = self.enc(source_nodes, formula.target_type)
 
-            # Encode the 1st anchor node
+            # Encode the 1st anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
             embeds1 = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
 
             # Create the offset embeddings for the 1st anchor node
             offset_embeddings1 = torch.zeros_like(embeds1)
 
-            # Project the 1st anchor node a1 through its relation p1 (t, p1, a1) creating the answer box
+            # Project the 1st anchor node a1 through its relation p1 (t, p1, a1) creating the answer box /embeds, offset_embeddings -> [embed_size {128}, batch_size]
             embeds1, offset_embeddings1 = self.path_dec(embeds1, offset_embeddings1, self.graph._reverse_relation(formula.rels[0]))
 
-            # Encode the 2nd anchor node
+            # Encode the 2nd anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
             embeds2 = self.enc([query.anchor_nodes[1] for query in queries], formula.anchor_types[1])
 
             # Create the offset embeddings for the 2nd anchor node
             offset_embeddings2 = torch.zeros_like(embeds2)
 
             # Project the 2nd anchor node a2 and each inter node ei through its relation pi creating second answer box
-            for i_rel in formula.rels[1][::-1]:  # loop the formula.rels[1] in the reverse order
+            for i_rel in formula.rels[1][-1:0:-1]:  # loop the formula.rels[1] in the reverse order
+                # embeds, offset_embeddings -> [embed_size {128}, batch_size]
                 embeds2, offset_embeddings2 = self.path_dec(embeds2, offset_embeddings2, self.graph._reverse_relation(i_rel))
 
-            # Intersect the 2 boxes
-            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1, embeds2]), formula.target_type)
-            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1, offset_embeddings2]))
+            # Intersect the 2 boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
+            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1.t(), embeds2.t()]), formula.target_type)
+            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1.t(), offset_embeddings2.t()]))
 
             # Return the distance of the target from the box
-            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
+            return self.dist_box_logit(target_embeds, query_intersection_cen, query_intersection_off)
 
         elif formula.query_type == "3-chain_inter":
             #        t      (t, p1, e1)
@@ -111,36 +113,36 @@ class QueryEncoderDecoder(nn.Module):
             #        |
             #     o->o<-o   ((e1, p2, a1), (e1, p3, a2))
 
-            # Encode the target variable
+            # Encode the target variable / target_embeds -> [embed_size, batch_size]
             target_embeds = self.enc(source_nodes, formula.target_type)
 
-            # Encode the 1st anchor node
+            # Encode the 1st anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
             embeds1 = self.enc([query.anchor_nodes[0] for query in queries], formula.anchor_types[0])
 
             # Create the offset embeddings for the 1st anchor node
             offset_embeddings1 = torch.zeros_like(embeds1)
 
-            # Project the 1st anchor node a1 through its relation p2 to inter node e1 (e1, p2, a1) creating a box
+            # Project the 1st anchor node a1 through its relation p2 to inter node e1 (e1, p2, a1) creating a box /embeds, offset_embeddings -> [embed_size {128}, batch_size]
             embeds1, offset_embeddings1 = self.path_dec(embeds1, offset_embeddings1, self.graph._reverse_relation(formula.rels[1][0]))
 
-            # Encode the 2nd anchor node
+            # Encode the 2nd anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
             embeds2 = self.enc([query.anchor_nodes[1] for query in queries], formula.anchor_types[1])
 
             # Create the offset embeddings for the 2nd anchor node
             offset_embeddings2 = torch.zeros_like(embeds2)
 
-            # Project the 2nd anchor node a2 through its relation p3 to inter node e1 (e1, p3, a2) creating a second box
+            # Project the 2nd anchor node a2 through its relation p3 to inter node e1 (e1, p3, a2) creating a second box /embeds, offset_embeddings -> [embed_size {128}, batch_size]
             embeds2, offset_embeddings2 = self.path_dec(embeds2, offset_embeddings2, self.graph._reverse_relation(formula.rels[1][1]))
 
-            # intersect the 2 boxes
-            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1, embeds2]), formula.rels[0])
-            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1, offset_embeddings2]))
+            # intersect the 2 boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
+            query_intersection_cen = self.inter_dec_cen(torch.stack([embeds1.t(), embeds2.t()]), formula.rels[0][-1])
+            query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1.t(), offset_embeddings2.t()]))
 
             # Project the inter node e1 through its relation p1 to the target node creating the answer box
-            query_intersection_cen, query_intersection_off = self.path_dec(query_intersection_cen, query_intersection_off, self.graph._reverse_relation(formula.rels[0]))
+            query_intersection_cen, query_intersection_off = self.path_dec(query_intersection_cen.t(), query_intersection_off.t(), self.graph._reverse_relation(formula.rels[0]))
 
             # Return the distance of the target from the box
-            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
+            return self.dist_box_logit(target_embeds, query_intersection_cen.t(), query_intersection_off.t())
 
         elif formula.query_type in ["2-inter", "3-inter"]:
             # o->t<-o  ((t, p1, a1),(t, p2, a2))     o->t<-o  ((t, p1, a1),(t, p2, a2),(t, p3, a3))
@@ -148,7 +150,7 @@ class QueryEncoderDecoder(nn.Module):
             #                                           |
             #                                           o
 
-            # Encode the target variable
+            # Encode the target variable / target_embeds -> [embed_size, batch_size]
             target_embeds = self.enc(source_nodes, formula.target_type)
 
             # Count the number of edges
@@ -158,26 +160,28 @@ class QueryEncoderDecoder(nn.Module):
             offset_list = []
             # For each anchor node ai project it through its relation pi to the target node creating an answer box
             for i in range(0, num_edges):
-                # Encode the anchor node
+                # Encode the anchor node / embeds -> [embed_size {128} -> [feat {64} + pos {64}], batch_size]
                 embeds = self.enc([query.anchor_nodes[i] for query in queries], formula.anchor_types[i])
 
                 # Create the offset embeddings for the anchor node
                 offset_embeddings = torch.zeros_like(embeds)
 
-                # Project the anchor node ai through its relation pi to the target node creating an answer box
+                # Project the anchor node ai through its relation pi to the target node creating an answer box /embeds, offset_embeddings -> [embed_size {128}, batch_size]
                 embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
 
-                embeds_list.append(embeds)
-                offset_list.append(offset_embeddings)
+                embeds_list.append(embeds.t())
+                offset_list.append(offset_embeddings.t())
 
-            # Intersect the boxes
+            # Intersect the boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
             query_intersection_cen = self.inter_dec_cen(torch.stack(embeds_list), formula.target_type)
             query_intersection_off = self.inter_dec_off(torch.stack(offset_list))
 
             # Return the distance of the target from the box
-            return self.dist_box_score(target_embeds, query_intersection_cen, query_intersection_off)
+            return self.dist_box_logit(target_embeds, query_intersection_cen, query_intersection_off)
 
-    def dist_box_score(self, entity_embedding, query_center_embedding, query_offset_embedding):
+    def dist_box_logit(self, entity_embedding, query_center_embedding, query_offset_embedding):
+        entity_embedding = entity_embedding.t()
+
         delta = (entity_embedding - query_center_embedding).abs()
         distance_out = F.relu(delta - query_offset_embedding)
         distance_in = torch.min(delta, query_offset_embedding)
@@ -195,8 +199,8 @@ class QueryEncoderDecoder(nn.Module):
         positive_logit = self.forward(formula, queries, [query.target_node for query in queries])
         negative_logit = self.forward(formula, queries, neg_nodes)
 
-        negative_score = F.logsigmoid(-negative_logit).mean(dim=1)
-        positive_score = F.logsigmoid(positive_logit).squeeze(dim=1)
+        negative_score = F.logsigmoid(-negative_logit).mean()
+        positive_score = F.logsigmoid(positive_logit).squeeze()
         positive_sample_loss = - positive_score.sum()
         negative_sample_loss = - negative_score.sum()
         loss = (positive_sample_loss + negative_sample_loss) / 2

@@ -14,7 +14,7 @@ Code to read and search the data files
 
 def read_custom_triples(custom_triples_path):
     custom_triples = pd.read_csv(custom_triples_path, sep='|')
-    custom_triples.columns = ['head', 'rel', 'tail']
+    custom_triples.columns = ['head_id', 'rel', 'tail_id']
     return custom_triples
 
 
@@ -33,6 +33,7 @@ def find_id(file_path, row):
 def find_node_maps(classes_path, entitiesID_path):
     entity_ids = pd.read_csv(entitiesID_path, sep=" ", header=None)
     entity_ids.columns = ['entity', 'id']
+    entity_ids = dict(zip(entity_ids['entity'], entity_ids['id']))
 
     with open(classes_path) as json_file:
         types = json.load(json_file)
@@ -45,7 +46,7 @@ def find_node_maps(classes_path, entitiesID_path):
             if entity_type not in node_maps:
                 node_maps[entity_type] = dict()
 
-            entity_id = entity_ids[entity_ids.entity == entity].id.values[0]
+            entity_id = entity_ids[entity]
             if entity_id not in node_maps[entity_type]:
                 node_maps[entity_type][entity_id] = -1
 
@@ -123,13 +124,13 @@ def read_id2extent(in_path):
 
 
 def read_graph(graph_path):
-    [feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel] = pickle_load(graph_path)
+    [feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel, id2type] = pickle_load(graph_path)
 
     def features(nodes, e_type):
         return feature_modules[e_type](
-            torch.autograd.Variable(torch.LongTensor([node_maps[e_type][n] for n in nodes]).to('cuda') + 1))
+            torch.autograd.Variable(torch.LongTensor([node_maps[e_type][n] for n in nodes]).to('cuda') + 1))  # ...nodes]).to('cuda')
 
-    graph = Graph(features, feature_dims, relations, adj_lists, inv_rel)
+    graph = Graph(features, feature_dims, relations, adj_lists, inv_rel, id2type)
     return graph, feature_modules, node_maps
 
 

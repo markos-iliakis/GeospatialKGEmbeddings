@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.utils.data
+from torch import sigmoid
+from torch.nn import Sigmoid
 
 
 class LayerNorm(nn.Module):
@@ -58,7 +60,7 @@ class SingleFeedForwardNN(nn.Module):
         else:
             self.dropout = None
 
-        self.act = activation
+        self.act = Sigmoid()
 
         if use_layernormalize:
             # the layer normalization is only used in the hidden layer, not the last layer
@@ -117,7 +119,6 @@ class MultiLayerFeedForwardNN(nn.Module):
                  num_hidden_layers=0,
                  dropout_rate=None,
                  hidden_dim=-1,
-                 activation=None,
                  use_layernormalize=False,
                  skip_connection=False):
         """
@@ -137,23 +138,22 @@ class MultiLayerFeedForwardNN(nn.Module):
         self.num_hidden_layers = num_hidden_layers
         self.dropout_rate = dropout_rate
         self.hidden_dim = hidden_dim
-        self.activation = activation
         self.use_layernormalize = use_layernormalize
         self.skip_connection = skip_connection
+
+
 
         self.layers = nn.ModuleList()
         if self.num_hidden_layers <= 0:
             self.layers.append(SingleFeedForwardNN(input_dim=self.input_dim,
                                                    output_dim=self.output_dim,
                                                    dropout_rate=self.dropout_rate,
-                                                   activation=self.activation,
                                                    use_layernormalize=False,
                                                    skip_connection=False))
         else:
             self.layers.append(SingleFeedForwardNN(input_dim=self.input_dim,
                                                    output_dim=self.hidden_dim,
                                                    dropout_rate=self.dropout_rate,
-                                                   activation=self.activation,
                                                    use_layernormalize=self.use_layernormalize,
                                                    skip_connection=self.skip_connection))
 
@@ -161,14 +161,12 @@ class MultiLayerFeedForwardNN(nn.Module):
                 self.layers.append(SingleFeedForwardNN(input_dim=self.hidden_dim,
                                                        output_dim=self.hidden_dim,
                                                        dropout_rate=self.dropout_rate,
-                                                       activation=self.activation,
                                                        use_layernormalize=self.use_layernormalize,
                                                        skip_connection=self.skip_connection))
 
             self.layers.append(SingleFeedForwardNN(input_dim=self.hidden_dim,
                                                    output_dim=self.output_dim,
                                                    dropout_rate=self.dropout_rate,
-                                                   activation=self.activation,
                                                    use_layernormalize=False,
                                                    skip_connection=False))
 

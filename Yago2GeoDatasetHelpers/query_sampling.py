@@ -38,14 +38,14 @@ def make_single_edge_query_data(data_path, graph_path, neg_sample_size):
     test_queries += [make_single_edge_query(graph, edge, 1) for edge in test_triples]
 
     print("Dumping valid/test 1-chain queries")
-    pickle.dump([q.serialize() for q in valid_queries], open(data_path + "val_edges.pkl", "wb"),
+    pickle.dump([q.serialize() for q in valid_queries], open(data_path + 'val_queries/' + "val_edges.pkl", "wb"),
                 protocol=pickle.HIGHEST_PROTOCOL)
-    pickle.dump([q.serialize() for q in test_queries], open(data_path + "test_edges.pkl", "wb"),
+    pickle.dump([q.serialize() for q in test_queries], open(data_path + 'test_queries/' + "test_edges.pkl", "wb"),
                 protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Dumping train 1-chain queries")
     train_queries = [Query(("1-chain", e), None, None, keep_graph=True) for e in train_triples]
-    pickle.dump([q.serialize() for q in train_queries], open(data_path + "train_edges.pkl", "wb"),
+    pickle.dump([q.serialize() for q in train_queries], open(data_path + 'train_queries/' + "train_edges.pkl", "wb"),
                 protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Finish making training/valid/testing 1-chain queries")
@@ -71,9 +71,9 @@ def make_multiedge_query_data(data_path, graph_path, num_workers, samples_per_wo
     else:
         file_postfix = ""
     pickle.dump([q.serialize() for q in queries_2],
-                open(data_path + "train_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_path + 'train_queries/' + "train_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump([q.serialize() for q in queries_3],
-                open(data_path + "train_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_path + 'train_queries/' + "train_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def make_inter_query_data(data_path, graph_path, num_workers, samples_per_worker, max_inter_size=5, mp_result_dir=None,
@@ -97,7 +97,7 @@ def make_inter_query_data(data_path, graph_path, num_workers, samples_per_worker
         file_postfix = ""
     for arity in queries_dict:
         pickle.dump([q.serialize() for q in queries_dict[arity]],
-                    open(data_path + "/train_inter_queries_{:d}{:s}.pkl".format(arity, file_postfix), "wb"),
+                    open(data_path + 'train_queries/' + "train_inter_queries_{:d}{:s}.pkl".format(arity, file_postfix), "wb"),
                     protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -126,6 +126,10 @@ def load_queries_by_formula(data_file, keep_graph=True):
     """
     if path.exists(data_file):
         raw_info = pickle.load(open(data_file, "rb"))
+
+        # remove dataframe column names (first element in raw_info)
+        raw_info.pop(0)
+
         queries = defaultdict(lambda: defaultdict(list))
         i = 0
         for raw_query in raw_info:
@@ -219,8 +223,8 @@ def sample_clean_test(graph_loader, data_dir, num_test_query=10000, num_val_quer
     test_graph = graph_loader()
     # load the validation and testing edges which need to be deleted from training graph
     print("load the validation and testing edges which need to be deleted from training graph")
-    test_edges = load_queries(data_dir + "/test_edges.pkl")
-    val_edges = load_queries(data_dir + "/val_edges.pkl")
+    test_edges = load_queries(data_dir + 'test_queries/' + "test_edges.pkl")
+    val_edges = load_queries(data_dir + 'val_queries/' + "val_edges.pkl")
     # remove all testing and validation edges from the training graph
     print("remove test/valid from train graph")
     train_graph.remove_edges([(q.target_node, q.formula.rels[0], q.anchor_nodes[0]) for q in test_edges + val_edges])
@@ -265,13 +269,13 @@ def sample_clean_test(graph_loader, data_dir, num_test_query=10000, num_val_quer
     else:
         file_postfix = ""
     pickle.dump([q.serialize() for q in test_queries_2],
-                open(data_dir + "/test_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_dir + 'test_queries/' + "test_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump([q.serialize() for q in test_queries_3],
-                open(data_dir + "/test_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_dir + 'test_queries/' + "test_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump([q.serialize() for q in val_queries_2],
-                open(data_dir + "/val_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_dir + 'val_queries/' + "val_queries_2{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump([q.serialize() for q in val_queries_3],
-                open(data_dir + "/val_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                open(data_dir + 'val_queries/' + "val_queries_3{}.pkl".format(file_postfix), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def clean_test(train_queries, test_queries):
@@ -304,10 +308,10 @@ def parallel_sample_worker(pid, num_samples, graph, data_dir, is_test, test_edge
     else:
         file_postfix = ""
     pickle.dump([q.serialize() for q in queries_2],
-                open(mp_data_dir + "/queries_2-{:d}{:s}.pkl".format(pid, file_postfix), "wb"),
+                open(mp_data_dir + "queries_2-{:d}{:s}.pkl".format(pid, file_postfix), "wb"),
                 protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump([q.serialize() for q in queries_3],
-                open(mp_data_dir + "/queries_3-{:d}{:s}.pkl".format(pid, file_postfix), "wb"),
+                open(mp_data_dir + "queries_3-{:d}{:s}.pkl".format(pid, file_postfix), "wb"),
                 protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -327,8 +331,8 @@ def parallel_sample(graph, num_workers, samples_per_worker, data_dir, test=False
     """
     if not test:
         print("Loading test/val data to remove them from train graph")
-        test_edges = load_queries(data_dir + "/test_edges.pkl")
-        val_edges = load_queries(data_dir + "/val_edges.pkl")
+        test_edges = load_queries(data_dir + 'test_queries/' + "test_edges.pkl")
+        val_edges = load_queries(data_dir + 'val_queries/' + "val_edges.pkl")
         print("Remove {} edges from the origin KG".format(len(test_edges + val_edges)))
         graph.remove_edges([(q.target_node, q.formula.rels[0], q.anchor_nodes[0]) for q in test_edges + val_edges])
     else:
@@ -407,8 +411,8 @@ def parallel_inter_query_sample(graph, num_workers, samples_per_worker, data_dir
     """
     if not test:
         print("Loading test/val data..")
-        test_edges = load_queries(data_dir + "/test_edges.pkl")
-        val_edges = load_queries(data_dir + "/val_edges.pkl")
+        test_edges = load_queries(data_dir + 'test_queries/' + "test_edges.pkl")
+        val_edges = load_queries(data_dir + 'val_queries/' + "val_edges.pkl")
         # I add this here
         print("Remove {} edges from the origin KG".format(len(test_edges + val_edges)))
         graph.remove_edges([(q.target_node, q.formula.rels[0], q.anchor_nodes[0]) for q in test_edges + val_edges])

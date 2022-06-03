@@ -222,7 +222,7 @@ class Query:
 
 class Graph:
 
-    def __init__(self, features, feature_dims, relations, adj_lists, rid2inverse=None):
+    def __init__(self, features, feature_dims, relations, adj_lists, rid2inverse, id2type):
         """
         Args:
             features(nodes, type): a embedding lookup function to make a dict() from node type to EmbeddingBag
@@ -258,9 +258,9 @@ class Graph:
         for rel, adjs in self.adj_lists.items():
             full_set = set(self.adj_lists[rel].keys())
             self.full_sets[rel[0]] = self.full_sets[rel[0]].union(full_set)
-        for mode, full_set in self.full_sets.items():
-            self.full_lists[mode] = list(full_set)
-        self.make_node2type()
+        for type, full_set in self.full_sets.items():
+            self.full_lists[type] = list(full_set)
+        self.node2type = id2type
         self._cache_edge_counts()
         self._make_flat_adj_lists()
 
@@ -400,8 +400,8 @@ class Graph:
                 else:
                     # sample a geographic node as the target node for the sampled query
                     geoid = random.choice(geoid_list)
-                    geomode = self.node2type[geoid]
-                    q = self.sample_query_subgraph_bytype(q_type, start_node=(geoid, geomode))
+                    geotype = self.node2type[geoid]
+                    q = self.sample_query_subgraph_bytype(q_type, start_node=(geoid, geotype))
                 # if the query is None or if the target node in the training graph, reject this query
                 # This control the test query to be unanswerable based on training graph
                 if q is None or not train_graph._is_negative(q, q[1][0], False):
@@ -795,15 +795,6 @@ class Graph:
                 print("Sampled", sampled)
         return queries
 
-    def make_node2type(self):
-        self.node2type = dict()
-        for rel in self.adj_lists:
-            for h in self.adj_lists[rel]:
-                self.node2type[h] = rel[0]
-                for t in self.adj_lists[rel][h]:
-                    self.node2type[t] = rel[-1]
-        return
-
     def get_nodes_by_arity(self, arity, id2geo=None):
         """
         Get a list of (node, mode) whose degree is larger or equal to arity
@@ -935,3 +926,131 @@ class Graph:
         # after n step (n=length of metapath), we get a set of nodes who are the n-degree neighbors by following the metapath from center node
         self.meta_neighs[rels][node] = current_set
         return current_set
+
+    def _is_negative(self, query, neg_node, is_hard):
+        """
+        Given a query and a neg_node in the target node position, decide whether neg_node is the (hard) negative sample for this query
+        Args:
+            query: a tuple, (query_type, edge1, edge2, ...), for 3-inter_chain and 3-chain_inter, the 3rd item is a tuple of two edges
+            neg_node: node id
+            is_hard: True/False, do hard negative sample
+        Return:
+            is_hard == True:
+                True: neg_node is a hard negative sample
+                False: neg_node is not a hard negative sample
+            is_hard == False:
+                True: neg_node is a negative sample
+                False: neg_node is not a negative sample
+        """
+        if query[0] == "2-chain":
+            query = (query[0], (neg_node, query[1][1], query[1][2]), query[2])
+            if query[2][-1] in self.get_metapath_neighs(query[1][0], (query[1][1], query[2][1])):
+                return False
+        if query[0] == "3-chain":
+            query = (query[0], (neg_node, query[1][1], query[1][2]), query[2], query[3])
+            if query[3][-1] in self.get_metapath_neighs(query[1][0], (query[1][1], query[2][1], query[3][1])):
+                return False
+        if query[0] == "2-inter":
+            query = (query[0], (neg_node, query[1][1], query[1][2]), (neg_node, query[2][1], query[2][2]))
+            if not is_hard:
+                # if the 1st and 2nd edge are all in the graph, this is not a negative sample
+                if self._check_edge(query, 1) and self._check_edge(query, 2):
+                    return False
+            else:
+                # (self._check_edge(query, 1) and self._check_edge(query, 2)): satisfy both edge
+                # not (self._check_edge(query, 1) or self._check_edge(query, 2)): whole - the union of 1st and 2nd edge
+                # Basic, if neg_node is not a hard negative sample
+                if (self._check_edge(query, 1) and self._check_edge(query, 2)) or not (
+                        self._check_edge(query, 1) or self._check_edge(query, 2)):
+                    return False
+        if query[0] == "3-inter":
+            query = (query[0], (neg_node, query[1][1], query[1][2]), (neg_node, query[2][1], query[2][2]),
+                     (neg_node, query[3][1], query[3][2]))
+            if not is_hard:
+                if self._check_edge(query, 1) and self._check_edge(query, 2) and self._check_edge(query, 3):
+                    return False
+            else:
+                if (self._check_edge(query, 1) and self._check_edge(query, 2) and self._check_edge(query, 3)) \
+                        or not (self._check_edge(query, 1) or self._check_edge(query, 2) or self._check_edge(query, 3)):
+                    return False
+        if query[0] == "3-inter_chain":
+            query = (
+                query[0], (neg_node, query[1][1], query[1][2]),
+                ((neg_node, query[2][0][1], query[2][0][2]), query[2][1]))
+            # check whether neg_node satisfy 2nd chain
+            meta_check = lambda: query[2][-1][-1] in self.get_metapath_neighs(query[1][0],
+                                                                              (query[2][0][1], query[2][1][1]))
+            # check whether neg_node satisfy 1st edge
+            neigh_check = lambda: self._check_edge(query, 1)
+            if not is_hard:
+                if meta_check() and neigh_check():
+                    return False
+            else:
+                if (meta_check() and neigh_check()) or not (meta_check() or neigh_check()):
+                    return False
+        if query[0] == "3-chain_inter":
+            query = (query[0], (neg_node, query[1][1], query[1][2]), query[2])
+            target_neigh = self.adj_lists[query[1][1]][neg_node]
+            neigh_1 = self.adj_lists[self._reverse_relation(query[2][0][1])][query[2][0][-1]]
+            neigh_2 = self.adj_lists[self._reverse_relation(query[2][1][1])][query[2][1][-1]]
+            if not is_hard:
+                if set(target_neigh) in set(neigh_1).intersection(neigh_2):
+                    return False
+            else:
+                # Something wrong?!!! should be or, not and,
+                if target_neigh in set(neigh_1).intersection(neigh_2) or not target_neigh in set(neigh_1).union(neigh_2):
+                    # if target_neigh in neigh_1.intersection(neigh_2) and not target_neigh in neigh_1.union(neigh_2):
+                    return False
+        return True
+
+    def _check_edge(self, query, i):
+        """
+        Check the ith edge in query in the graph
+        True: ith edge is correct
+        False: ith edge is not in the graph
+        """
+        return query[i][-1] in self.adj_lists[query[i][1]][query[i][0]]
+
+    def _is_subgraph(self, query, verbose):
+        """
+        Check the query quality, raise exception when the query structure does not match the query type
+        Args:
+            query: a tuple, (query_type, edge1, edge2, ...), for 3-inter_chain and 3-chain_inter, the 3rd item is a tuple of two edges
+        Return:
+            raise exception when the query structure does not match the query type
+        """
+        if query[0] == "3-chain":
+            for i in range(3):
+                if not self._check_edge(query, i + 1):
+                    raise Exception(str(query))
+            if not (query[1][-1] == query[2][0] and query[2][-1] == query[3][0]):
+                raise Exception(str(query))
+        if query[0] == "2-chain":
+            for i in range(2):
+                if not self._check_edge(query, i + 1):
+                    raise Exception(str(query))
+            if not query[1][-1] == query[2][0]:
+                raise Exception(str(query))
+        if query[0] == "2-inter":
+            for i in range(2):
+                if not self._check_edge(query, i + 1):
+                    raise Exception(str(query))
+            if not query[1][0] == query[2][0]:
+                raise Exception(str(query))
+        if query[0] == "3-inter":
+            for i in range(3):
+                if not self._check_edge(query, i + 1):
+                    raise Exception(str(query))
+            if not (query[1][0] == query[2][0] and query[2][0] == query[3][0]):
+                raise Exception(str(query))
+        if query[0] == "3-inter_chain":
+            if not (self._check_edge(query, 1) and self._check_edge(query[2], 0) and self._check_edge(query[2], 1)):
+                raise Exception(str(query))
+            if not (query[1][0] == query[2][0][0] and query[2][0][-1] == query[2][1][0]):
+                raise Exception(str(query))
+        if query[0] == "3-chain_inter":
+            if not (self._check_edge(query, 1) and self._check_edge(query[2], 0) and self._check_edge(query[2], 1)):
+                raise Exception(str(query))
+            if not (query[1][-1] == query[2][0][0] and query[2][0][0] == query[2][1][0]):
+                raise Exception(str(query))
+        return True
