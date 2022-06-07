@@ -26,7 +26,7 @@ class QueryEncoderDecoder(nn.Module):
             use_inter_node: Whether we use the True nodes in the intersection attention as the query embedding to train the QueryEncoderDecoder
         """
         super(QueryEncoderDecoder, self).__init__()
-        self.cen = 0.02  # Hyperparameter that balances the in-box distance and the out-box distance
+        self.a = 0.02  # Hyperparameter that balances the in-box distance and the out-box distance
         self.gamma = nn.Parameter(torch.Tensor([24]), requires_grad=False)
         self.enc = enc
         self.path_dec = path_dec
@@ -69,7 +69,7 @@ class QueryEncoderDecoder(nn.Module):
                 embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
 
             # Return the distance of the target from the box
-            return self.dist_box_logit(target_embeds, embeds.t(), offset_embeddings.t())
+            return self.dist_box(target_embeds, embeds.t(), offset_embeddings.t())
 
         elif formula.query_type == "3-inter_chain":
             #        t<-o<-o  ((t, p2, e1), (e1, p3, a2))
@@ -105,7 +105,7 @@ class QueryEncoderDecoder(nn.Module):
             query_intersection_off = self.inter_dec_off(torch.stack([offset_embeddings1.t(), offset_embeddings2.t()]))
 
             # Return the distance of the target from the box
-            return self.dist_box_logit(target_embeds, query_intersection_cen, query_intersection_off)
+            return self.dist_box(target_embeds, query_intersection_cen, query_intersection_off)
 
         elif formula.query_type == "3-chain_inter":
             #        t      (t, p1, e1)
@@ -142,7 +142,7 @@ class QueryEncoderDecoder(nn.Module):
             query_intersection_cen, query_intersection_off = self.path_dec(query_intersection_cen.t(), query_intersection_off.t(), self.graph._reverse_relation(formula.rels[0]))
 
             # Return the distance of the target from the box
-            return self.dist_box_logit(target_embeds, query_intersection_cen.t(), query_intersection_off.t())
+            return self.dist_box(target_embeds, query_intersection_cen.t(), query_intersection_off.t())
 
         elif formula.query_type in ["2-inter", "3-inter"]:
             # o->t<-o  ((t, p1, a1),(t, p2, a2))     o->t<-o  ((t, p1, a1),(t, p2, a2),(t, p3, a3))
@@ -177,16 +177,23 @@ class QueryEncoderDecoder(nn.Module):
             query_intersection_off = self.inter_dec_off(torch.stack(offset_list))
 
             # Return the distance of the target from the box
-            return self.dist_box_logit(target_embeds, query_intersection_cen, query_intersection_off)
+            return self.dist_box(target_embeds, query_intersection_cen, query_intersection_off)
 
-    def dist_box_logit(self, entity_embedding, query_center_embedding, query_offset_embedding):
+    def dist_box(self, entity_embedding, query_center_embedding, query_offset_embedding):
         entity_embedding = entity_embedding.t()
 
         delta = (entity_embedding - query_center_embedding).abs()
+
+        # Use ReLU for d_out to zero the negatives in the vector
         distance_out = F.relu(delta - query_offset_embedding)
+
         distance_in = torch.min(delta, query_offset_embedding)
-        logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.cen * torch.norm(distance_in, p=1, dim=-1)
-        return logit
+
+        # Downweight the distance inside the box as we regard entities inside the box close enough to the center
+        distance_box = torch.norm(distance_out, p=1, dim=-1) + self.a * torch.norm(distance_in, p=1, dim=-1)
+
+        # logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.a * torch.norm(distance_in, p=1, dim=-1)
+        return distance_box
 
     def box_loss(self, formula, queries, hard_negatives=False):
         if hard_negatives:
@@ -196,16 +203,14 @@ class QueryEncoderDecoder(nn.Module):
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
-        positive_logit = self.forward(formula, queries, [query.target_node for query in queries])
-        negative_logit = self.forward(formula, queries, neg_nodes)
+        positive_dist_box = self.forward(formula, queries, [query.target_node for query in queries])
+        negative_dist_box = self.forward(formula, queries, neg_nodes)
 
-        negative_score = F.logsigmoid(-negative_logit).mean()
-        positive_score = F.logsigmoid(positive_logit).squeeze()
-        positive_sample_loss = - positive_score.sum()
-        negative_sample_loss = - negative_score.sum()
-        loss = (positive_sample_loss + negative_sample_loss) / 2
+        negative_score = F.logsigmoid(negative_dist_box - self.gamma)  # .mean() if negatives more than 1/query
+        positive_score = F.logsigmoid(self.gamma - positive_dist_box)
+        loss = -positive_score - negative_score
 
-        return loss
+        return loss.sum()
 
     def margin_loss(self, formula, queries, hard_negatives=False, margin=1):
         if "inter" not in formula.query_type and hard_negatives:

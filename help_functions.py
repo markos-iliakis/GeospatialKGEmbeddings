@@ -32,6 +32,9 @@ def create_paths():
     valid_path = data_path + 'val_queries/'
     test_path = data_path + 'test_queries/'
 
+    if sub_dataset != '':
+        print(f'Training on {sub_dataset.split("_")[1]}')
+
     return data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path
 
 
@@ -222,9 +225,9 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         if iteration % 1 == 0:
             print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{loss}')
 
-        if check_conv(losses, 1e-6):
-            print(f'Model Converged at Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs}')
-            break
+        # if check_conv(losses, 1e-6):
+        #     print(f'Model Converged at Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs}')
+        #     break
 
 
 def test(model, queries, batch_size=128):
