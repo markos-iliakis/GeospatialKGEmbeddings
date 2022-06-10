@@ -211,7 +211,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
                 loss += path_weight * model.box_loss(formula, train_batch)
 
         # Update loss
-        losses.append(loss.cpu())
+        losses.append(loss)
 
         # Compute Gradients
         loss.backward()
