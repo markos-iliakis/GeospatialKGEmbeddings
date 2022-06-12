@@ -135,13 +135,11 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
 
     print('Creating Intersection Operator..')
     # intersection-attention
-    # inter_dec_cen = CenterIntersection(dim=out_dims)
     inter_dec_cen = BoxCenterIntersectAttention(out_dims=out_dims, types=types, num_attn=1)
     inter_dec_off = BoxOffsetIntersection(dim=out_dims)
-    # inter_attn = IntersectConcatAttention(query_dims=model_out_dims, key_dims=model_out_dims, num_attn=1, activation='leakyrelu', f_activation='sigmoid', layernorm=True, use_post_mat=True)
 
     # model
-    enc_dec = QueryEncoderDecoder(graph=graph, enc=enc, path_dec=dec, inter_dec_cen=inter_dec_cen, inter_dec_off=inter_dec_off, use_inter_node=do_train)
+    enc_dec = QueryEncoderDecoder(graph=graph, enc=enc, path_dec=dec, inter_dec_cen=inter_dec_cen, inter_dec_off=inter_dec_off)
     enc_dec.to('cuda')
 
     return enc_dec

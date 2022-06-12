@@ -15,7 +15,7 @@ class QueryEncoderDecoder(nn.Module):
     Encoder decoder model that reasons about edges, meta-paths and intersections
     """
 
-    def __init__(self, graph, enc, path_dec, inter_dec_cen, inter_dec_off, use_inter_node=False):
+    def __init__(self, graph, enc, path_dec, inter_dec_cen, inter_dec_off):
         """
         Args:
             graph: the Graph() object
@@ -33,8 +33,6 @@ class QueryEncoderDecoder(nn.Module):
         self.inter_dec_cen = inter_dec_cen
         self.inter_dec_off = inter_dec_off
         self.graph = graph
-        self.cos = nn.CosineSimilarity(dim=0)
-        self.use_inter_node = use_inter_node
 
     def forward(self, formula, queries, source_nodes):
         """
