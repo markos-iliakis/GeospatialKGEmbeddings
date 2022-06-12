@@ -102,11 +102,13 @@ class BoxDecoder(nn.Module):
         for r1 in relations:
             for r2 in relations[r1]:
                 rel = (r1, r2[1], r2[0])
-                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_embed_dim, feat_embed_dim))
+                # self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_embed_dim, feat_embed_dim))
+                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(1, feat_embed_dim))
                 nn.init.xavier_uniform_(self.feat_mats[rel])
                 self.register_parameter("feat-" + "_".join(rel), self.feat_mats[rel])
 
-                self.pos_mats[rel] = nn.Parameter(torch.FloatTensor(spa_embed_dim, spa_embed_dim))
+                # self.pos_mats[rel] = nn.Parameter(torch.FloatTensor(spa_embed_dim, spa_embed_dim))
+                self.pos_mats[rel] = nn.Parameter(torch.FloatTensor(1, spa_embed_dim))
                 nn.init.xavier_uniform_(self.pos_mats[rel])
                 self.register_parameter("pos-" + "_".join(rel), self.pos_mats[rel])
 
@@ -124,8 +126,12 @@ class BoxDecoder(nn.Module):
         feat_act, pos_act = torch.split(embeddings.t(), [self.feat_embed_dim, self.spa_embed_dim], dim=1)
 
         # Add up the center and its projection through the relation
-        feat_act = feat_act.clone().mm(self.feat_mats[rel])
-        pos_act = pos_act.clone().mm(self.pos_mats[rel])
+        # feat_act = feat_act.clone().mm(self.feat_mats[rel])
+        # pos_act = pos_act.clone().mm(self.pos_mats[rel])
+
+        feat_act = torch.add(feat_act, self.feat_mats[rel].data)
+        pos_act = torch.add(pos_act, self.pos_mats[rel].data)
+
         embeddings += torch.cat([feat_act, pos_act], dim=1).t()
 
         # Add up the offsets

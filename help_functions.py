@@ -19,7 +19,7 @@ from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, s
 
 
 def create_paths():
-    sub_dataset = '_uk'
+    sub_dataset = '_grc'
     materialization = ''  # 'materialized/'
     triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
     types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
@@ -65,27 +65,27 @@ def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_pa
     make_single_edge_query_data(data_path, graph_path, 100)  # 100
 
     # Make train / valid / test 2/3-chain queries
-    mp_result_dir = data_path + 'train_queries_mp/'
-    sample_new_clean(data_path, graph_path)
-    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_dir)  # 50 20000
-
-    # Make train x-inter queries
-    mp_result_dir = data_path + 'train_inter_queries_mp/'
-    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_dir)  # 50 10000
-
-    # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
-    id2geo = read_id2geo(id2geo_path)
-    sample_new_clean(data_path, graph_path, id2geo=id2geo)
-
-    # Make train x-inter queries, negative samples are geo-entities
-    print("Do geo content sample")
-    mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
-    id2geo = read_id2geo(id2geo_path)
-    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
-
-    mp_result_geo_dir = data_path + "train_queries_geo_mp/"
-    id2geo = read_id2geo(id2geo_path)
-    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
+    # mp_result_dir = data_path + 'train_queries_mp/'
+    # sample_new_clean(data_path, graph_path)
+    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_dir)  # 50 20000
+    #
+    # # Make train x-inter queries
+    # mp_result_dir = data_path + 'train_inter_queries_mp/'
+    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_dir)  # 50 10000
+    #
+    # # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
+    # id2geo = read_id2geo(id2geo_path)
+    # sample_new_clean(data_path, graph_path, id2geo=id2geo)
+    #
+    # # Make train x-inter queries, negative samples are geo-entities
+    # print("Do geo content sample")
+    # mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
+    # id2geo = read_id2geo(id2geo_path)
+    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
+    #
+    # mp_result_geo_dir = data_path + "train_queries_geo_mp/"
+    # id2geo = read_id2geo(id2geo_path)
+    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
 
 
 def load_data():
