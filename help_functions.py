@@ -131,17 +131,15 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
 
     print('Creating Projection Operator..')
     # decoder-projection
-    dec = BoxDecoder(graph.relations, feat_embed_dim=feat_embed_dim, spa_embed_dim=spa_embed_dim)
+    dec = BilinearBlockDiagMetapathDecoder(graph.relations, feat_embed_dim, spa_embed_dim)
 
     print('Creating Intersection Operator..')
     # intersection-attention
-    # inter_dec_cen = CenterIntersection(dim=out_dims)
-    inter_dec_cen = BoxCenterIntersectAttention(out_dims=out_dims, types=types, num_attn=1)
-    inter_dec_off = BoxOffsetIntersection(dim=out_dims)
-    # inter_attn = IntersectConcatAttention(query_dims=model_out_dims, key_dims=model_out_dims, num_attn=1, activation='leakyrelu', f_activation='sigmoid', layernorm=True, use_post_mat=True)
+    inter_attn = IntersectConcatAttention(query_dims=out_dims, key_dims=out_dims, num_attn=1, activation='leakyrelu', f_activation='sigmoid', layernorm=True, use_post_mat=True)
+    inter_dec = SimpleSetIntersection(agg_func=torch.cat)
 
     # model
-    enc_dec = QueryEncoderDecoder(graph=graph, enc=enc, path_dec=dec, inter_dec_cen=inter_dec_cen, inter_dec_off=inter_dec_off, use_inter_node=do_train)
+    enc_dec = QueryEncoderDecoder(graph=graph, enc=enc, path_dec=dec, inter_dec=inter_dec, inter_attn=inter_attn, use_inter_node=do_train)
     enc_dec.to('cuda')
 
     return enc_dec
@@ -199,16 +197,16 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
 
             if query_type == '1-chain':
                 # Compute loss
-                loss += model.box_loss(formula, train_batch)
+                loss += model.margin_loss(formula, train_batch)
 
             elif 'inter' in query_type:  # 2-inter, 3-inter, 3-inter-chain, 3-chain-inter
                 # Compute loss
-                loss += inter_weight * model.box_loss(formula, train_batch)
-                loss += inter_weight * model.box_loss(formula, train_batch, hard_negatives=True)
+                loss += inter_weight * model.margin_loss(formula, train_batch)
+                loss += inter_weight * model.margin_loss(formula, train_batch, hard_negatives=True)
 
             else:  # 2-chain, 3-chain
                 # Compute loss
-                loss += path_weight * model.box_loss(formula, train_batch)
+                loss += path_weight * model.margin_loss(formula, train_batch)
 
         # Update loss
         losses.append(loss.cpu())

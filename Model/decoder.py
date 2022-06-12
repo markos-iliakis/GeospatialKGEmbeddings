@@ -20,7 +20,7 @@ class BilinearBlockDiagMetapathDecoder(nn.Module):
     i.e. the likelihood of compositional relationship or metapath, between a pair of nodes.
     """
 
-    def __init__(self, relations, dims, feat_dims, spa_embed_dim):
+    def __init__(self, relations, feat_dims, spa_embed_dim):
         """
         Args:
             relations: a dict() of all triple templates
