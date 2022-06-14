@@ -53,8 +53,8 @@ class QueryEncoderDecoder(nn.Module):
             reverse_rels = tuple(
                 [self.graph._reverse_relation(formula.rels[i]) for i in range(len(formula.rels) - 1, -1, -1)])
             return self.path_dec.forward(
-                self.enc.forward([query.anchor_nodes[0] for query in queries], formula.anchor_modes[0]),
-                self.enc.forward(source_nodes, formula.target_mode), reverse_rels)
+                self.enc.forward([query.anchor_nodes[0] for query in queries], formula.anchor_types[0]),
+                self.enc.forward(source_nodes, formula.target_type), reverse_rels)
 
         elif formula.query_type == "3-inter_chain":
             #        t<-o<-o  ((t, p2, e1), (e1, p3, a2))
@@ -80,15 +80,15 @@ class QueryEncoderDecoder(nn.Module):
                 embeds2 = self.path_dec.project(embeds2, self.graph._reverse_relation(i_rel))
 
             # Intersect the 2 boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
-            query_intersection, embeds_inter = self.inter_dec(formula.target_mode, [embeds1, embeds2])
+            query_intersection, embeds_inter = self.inter_dec(formula.target_type, [embeds1, embeds2])
             if self.use_inter_node and modelTraining:
                 # for 2-inter, 3-inter, 3-inter_chain, the inter node is target node
                 # we we can use source_nodes
                 query_embeds = self.graph.features([query.target_node for query in queries],
-                                                   formula.target_mode).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_mode)
+                                                   formula.target_type).t()
+                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
             else:
-                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_mode)
+                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_type)
 
             # Return the cosine similarity of the target embedding with the predicted embedding
             return self.cos(target_embeds, query_intersection)
@@ -121,7 +121,7 @@ class QueryEncoderDecoder(nn.Module):
                 inter_nodes = [query.query_graph[1][2] for query in queries]
                 inter_node_mode = formula.rels[0][2]
                 query_embeds = self.graph.features(inter_nodes, inter_node_mode).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_mode)
+                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
             else:
                 query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.rels[0][-1])
 
@@ -156,14 +156,14 @@ class QueryEncoderDecoder(nn.Module):
                 embeds_list.append(embeds)
 
             # Intersect the boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
-            query_intersection, embeds_inter = self.inter_dec(formula.target_mode, embeds_list)
+            query_intersection, embeds_inter = self.inter_dec(formula.target_type, embeds_list)
             if self.use_inter_node and modelTraining:
                 # for x-inter, the inter node is target node
                 # so we can use the real target node
-                query_embeds = self.graph.features([query.target_node for query in queries], formula.target_mode).t()
-                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_mode)
+                query_embeds = self.graph.features([query.target_node for query in queries], formula.target_type).t()
+                query_intersection = self.inter_attn(query_embeds, embeds_inter, formula.target_type)
             else:
-                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_mode)
+                query_intersection = self.inter_attn(query_intersection, embeds_inter, formula.target_type)
 
             # Return the distance of the target from the box
             return self.cos(target_embeds, query_intersection)

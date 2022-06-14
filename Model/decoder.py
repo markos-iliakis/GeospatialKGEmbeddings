@@ -41,7 +41,7 @@ class BilinearBlockDiagMetapathDecoder(nn.Module):
         for r1 in relations:
             for r2 in relations[r1]:
                 rel = (r1, r2[1], r2[0])
-                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_dims[rel[0]], feat_dims[rel[2]]))
+                self.feat_mats[rel] = nn.Parameter(torch.FloatTensor(feat_dims, feat_dims))
                 nn.init.xavier_uniform_(self.feat_mats[rel])
                 self.register_parameter("feat-" + "_".join(rel), self.feat_mats[rel])
 
@@ -56,7 +56,7 @@ class BilinearBlockDiagMetapathDecoder(nn.Module):
         """
         # act: [batch_size, embed_dim]
         act = embeds1.t()
-        feat_act, pos_act = torch.split(act, [self.feat_dims[rels[0][0]], self.spa_embed_dim], dim=1)
+        feat_act, pos_act = torch.split(act, [self.feat_dims, self.spa_embed_dim], dim=1)
         for i_rel in rels:
             feat_act = feat_act.mm(self.feat_mats[i_rel])
             pos_act = pos_act.mm(self.pos_mats[i_rel])
@@ -71,7 +71,7 @@ class BilinearBlockDiagMetapathDecoder(nn.Module):
         rel: triple template
         """
         feat_act, pos_act = torch.split(embeds.t(),
-                                        [self.feat_dims[rel[0]], self.spa_embed_dim], dim=1)
+                                        [self.feat_dims, self.spa_embed_dim], dim=1)
         feat_act = feat_act.mm(self.feat_mats[rel])
         pos_act = pos_act.mm(self.pos_mats[rel])
         act = torch.cat([feat_act, pos_act], dim=1)
@@ -252,7 +252,7 @@ class BoxCenterIntersectAttention(nn.Module):
 
 
 class IntersectConcatAttention(nn.Module):
-    def __init__(self, query_dims, key_dims, activation, f_activation, num_attn=1, layernorm=False, use_post_mat=False):
+    def __init__(self, types, embed_dim, activation, f_activation, num_attn=1, layernorm=False, use_post_mat=False):
         """
         The attention method used by Graph Attention network (LeakyReLU)
         Args:
@@ -264,16 +264,14 @@ class IntersectConcatAttention(nn.Module):
         """
         super(IntersectConcatAttention, self).__init__()
         self.atten_vecs = {}
-        self.query_dims = query_dims
-        self.key_dims = key_dims
         self.num_attn = num_attn
 
         # define the layer normalization
         self.layernorm = layernorm
         if self.layernorm:
             self.lns = {}
-            for type in query_dims:
-                self.lns[type] = LayerNorm(query_dims[type])
+            for type in types:
+                self.lns[type] = LayerNorm(embed_dim)
                 self.add_module(type + "_ln", self.lns[type])
 
         self.use_post_mat = use_post_mat
@@ -282,16 +280,16 @@ class IntersectConcatAttention(nn.Module):
             self.post_B = {}
             if self.layernorm:
                 self.post_lns = {}
-            for type in query_dims:
-                self.post_W[type] = nn.Parameter(torch.FloatTensor(query_dims[type], query_dims[type]))
+            for type in types:
+                self.post_W[type] = nn.Parameter(torch.FloatTensor(embed_dim, embed_dim))
                 nn.init.xavier_uniform_(self.post_W[type])
                 self.register_parameter(type + "_attnPostW", self.post_W[type])
 
-                self.post_B[type] = nn.Parameter(torch.FloatTensor(query_dims[type], 1))
+                self.post_B[type] = nn.Parameter(torch.FloatTensor(embed_dim, 1))
                 nn.init.xavier_uniform_(self.post_B[type])
                 self.register_parameter(type + "_attnPostB", self.post_B[type])
                 if self.layernorm:
-                    self.post_lns[type] = LayerNorm(query_dims[type])
+                    self.post_lns[type] = LayerNorm(embed_dim)
                     self.add_module(type + "_attnPostln", self.post_lns[type])
 
         self.activation = activation
@@ -300,9 +298,9 @@ class IntersectConcatAttention(nn.Module):
 
         self.softmax = nn.Softmax(dim=0)
 
-        for type in query_dims:
+        for type in types:
             # each column represent an attention vector for one attention head: [embed_dim*2, num_attn]
-            self.atten_vecs[type] = nn.Parameter(torch.FloatTensor(query_dims[type] + key_dims[type], self.num_attn))
+            self.atten_vecs[type] = nn.Parameter(torch.FloatTensor(2 * embed_dim, self.num_attn))
             nn.init.xavier_uniform_(self.atten_vecs[type])
             self.register_parameter(type + "_attenvecs", self.atten_vecs[type])
 
