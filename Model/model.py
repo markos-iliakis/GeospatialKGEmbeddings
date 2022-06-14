@@ -80,7 +80,7 @@ class QueryEncoderDecoder(nn.Module):
                 embeds2 = self.path_dec.project(embeds2, self.graph._reverse_relation(i_rel))
 
             # Intersect the 2 boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
-            query_intersection, embeds_inter = self.inter_dec(formula.target_type, [embeds1, embeds2])
+            query_intersection, embeds_inter = self.inter_dec([embeds1, embeds2])
             if self.use_inter_node and modelTraining:
                 # for 2-inter, 3-inter, 3-inter_chain, the inter node is target node
                 # we we can use source_nodes
@@ -156,7 +156,7 @@ class QueryEncoderDecoder(nn.Module):
                 embeds_list.append(embeds)
 
             # Intersect the boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
-            query_intersection, embeds_inter = self.inter_dec(formula.target_type, embeds_list)
+            query_intersection, embeds_inter = self.inter_dec(embeds_list)
             if self.use_inter_node and modelTraining:
                 # for x-inter, the inter node is target node
                 # so we can use the real target node

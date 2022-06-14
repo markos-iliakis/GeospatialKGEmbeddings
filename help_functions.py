@@ -19,7 +19,7 @@ from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, s
 
 
 def create_paths():
-    sub_dataset = '_uk'
+    sub_dataset = '_grc'
     materialization = ''  # 'materialized/'
     triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
     types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
@@ -136,7 +136,7 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
     print('Creating Intersection Operator..')
     # intersection-attention
     inter_attn = IntersectConcatAttention(types=types, embed_dim=64, num_attn=1, activation='leakyrelu', f_activation='sigmoid', layernorm=True, use_post_mat=True)
-    inter_dec = SimpleSetIntersection(agg_func=torch.cat)
+    inter_dec = SimpleSetIntersection(agg_func=torch.mean)
 
     # model
     enc_dec = QueryEncoderDecoder(graph=graph, enc=enc, path_dec=dec, inter_dec=inter_dec, inter_attn=inter_attn, use_inter_node=do_train)
