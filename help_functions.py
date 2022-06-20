@@ -19,7 +19,7 @@ from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, s
 
 
 def create_paths():
-    sub_dataset = '_grc'
+    sub_dataset = '_uk'
     materialization = ''  # 'materialized/'
     triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
     types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
@@ -102,10 +102,11 @@ def load_data():
     # Load queries of all types
     print('Loading Queries..')
     data['train_queries'] = dict()
-    data['valid_queries'] = dict()
-    data['test_queries'] = dict()
+    data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
+    data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
     for file in os.listdir(train_path):
+        print(f'\t{file}')
         data['train_queries'].update(load_queries_by_formula(train_path + file))
 
     for file in os.listdir(valid_path):
