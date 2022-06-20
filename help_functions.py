@@ -5,6 +5,7 @@ import random
 import torch
 from scipy.stats import stats
 from sklearn.metrics import roc_auc_score
+from statistics import mean
 
 from Model.MultiLayerFFN import MultiLayerFeedForwardNN
 from Model.decoder import BilinearBlockDiagMetapathDecoder, SimpleSetIntersection, IntersectConcatAttention, BoxDecoder, \
@@ -106,23 +107,20 @@ def load_data():
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
     for file in os.listdir(train_path):
-        if file == 'train_edges.pkl':
-            print(f'\t{file}')
-            data['train_queries'].update(load_queries_by_formula(train_path + file))
+        print(f'\t{file}')
+        data['train_queries'].update(load_queries_by_formula(train_path + file))
 
     for file in os.listdir(valid_path):
-        if file == 'val_edges.pkl':
-            print(f'\t{file}')
-            x = load_test_queries_by_formula(valid_path + file)
-            data['valid_queries']['full_neg'].update(x['full_neg'])
-            data['valid_queries']['one_neg'].update(x['one_neg'])
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(valid_path + file)
+        data['valid_queries']['full_neg'].update(x['full_neg'])
+        data['valid_queries']['one_neg'].update(x['one_neg'])
 
     for file in os.listdir(test_path):
-        if file == 'test_edges.pkl':
-            print(f'\t{file}')
-            x = load_test_queries_by_formula(test_path + file)
-            data['test_queries']['full_neg'].update(x['full_neg'])
-            data['test_queries']['one_neg'].update(x['one_neg'])
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(test_path + file)
+        data['test_queries']['full_neg'].update(x['full_neg'])
+        data['test_queries']['one_neg'].update(x['one_neg'])
 
     return data
 
@@ -227,18 +225,19 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         # Update weights
         optimizer.step()
 
-        # Validate
-        aucs, aprs = test(model, val_queries)
-
-        if iteration % 1 == 0:
-            print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{loss}')
+        if iteration % 100 == 0:
+            print('Validating..')
+            # Validate
+            aucs, aprs = test(model, val_queries)
+            print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{mean(losses)}')
+            print('Training..')
 
         # if check_conv(losses, 1e-6):
         #     print(f'Model Converged at Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs}')
         #     break
 
 
-def test(model, queries, batch_size=128):
+def test(model, queries, batch_size=2048):
     """
     Given queries, evaluate AUC and APR by negative sampling and hard negative sampling
     Args:
@@ -287,13 +286,13 @@ def test(model, queries, batch_size=128):
 
                 offset += batch_size
 
-                labels.extend([1 for _ in range(len(lengths))])
+                formula_labels.extend([1 for _ in range(len(lengths))])
                 formula_labels.extend([0 for _ in range(len(negatives))])
 
                 # Get the scores of the batch
-                batch_scores = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
+                batch_scores, in_box = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
                 batch_scores = batch_scores.data.tolist()
-                formula_predictions.extend(batch_scores)
+                formula_predictions.extend(in_box)
 
             labels.extend(formula_labels)
             predictions.extend(formula_predictions)
@@ -320,7 +319,7 @@ def test(model, queries, batch_size=128):
 
                 # batch_scores : We have N queries. 1st N scores in batch_scores correspond to cos score for each positive query-target
                 #                batch_scores[N:] correspond to cos score for each negative query-target which append in order, the total number of scores is sum(lengths)
-                batch_scores = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
+                batch_scores, in_box = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
                 batch_scores = batch_scores.data.tolist()
 
                 # invert distances
