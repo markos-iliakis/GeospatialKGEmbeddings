@@ -33,7 +33,7 @@ def create_paths():
     test_path = data_path + 'test_queries/'
 
     if sub_dataset != '':
-        print(f'Training on {sub_dataset.split("_")[1]}')
+        print(f'Working on {sub_dataset.split("_")[1]}')
 
     return data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path
 
@@ -65,27 +65,27 @@ def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_pa
     make_single_edge_query_data(data_path, graph_path, 100)  # 100
 
     # Make train / valid / test 2/3-chain queries
-    # mp_result_dir = data_path + 'train_queries_mp/'
-    # sample_new_clean(data_path, graph_path)
-    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_dir)  # 50 20000
-    #
-    # # Make train x-inter queries
-    # mp_result_dir = data_path + 'train_inter_queries_mp/'
-    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_dir)  # 50 10000
-    #
-    # # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
-    # id2geo = read_id2geo(id2geo_path)
-    # sample_new_clean(data_path, graph_path, id2geo=id2geo)
-    #
-    # # Make train x-inter queries, negative samples are geo-entities
-    # print("Do geo content sample")
-    # mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
-    # id2geo = read_id2geo(id2geo_path)
-    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
-    #
-    # mp_result_geo_dir = data_path + "train_queries_geo_mp/"
-    # id2geo = read_id2geo(id2geo_path)
-    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
+    mp_result_dir = data_path + 'train_queries_mp/'
+    sample_new_clean(data_path, graph_path)
+    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_dir)  # 50 20000
+
+    # Make train x-inter queries
+    mp_result_dir = data_path + 'train_inter_queries_mp/'
+    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_dir)  # 50 10000
+
+    # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
+    id2geo = read_id2geo(id2geo_path)
+    sample_new_clean(data_path, graph_path, id2geo=id2geo)
+
+    # Make train x-inter queries, negative samples are geo-entities
+    print("Do geo content sample")
+    mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
+    id2geo = read_id2geo(id2geo_path)
+    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
+
+    mp_result_geo_dir = data_path + "train_queries_geo_mp/"
+    id2geo = read_id2geo(id2geo_path)
+    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
 
 
 def load_data():
@@ -102,17 +102,24 @@ def load_data():
     # Load queries of all types
     print('Loading Queries..')
     data['train_queries'] = dict()
-    data['valid_queries'] = dict()
-    data['test_queries'] = dict()
+    data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
+    data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
     for file in os.listdir(train_path):
+        print(f'\t{file}')
         data['train_queries'].update(load_queries_by_formula(train_path + file))
 
     for file in os.listdir(valid_path):
-        data['valid_queries'] = load_test_queries_by_formula(valid_path + file)
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(valid_path + file)
+        data['valid_queries']['full_neg'].update(x['full_neg'])
+        data['valid_queries']['one_neg'].update(x['one_neg'])
 
     for file in os.listdir(test_path):
-        data['test_queries'] = load_test_queries_by_formula(test_path + file)
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(test_path + file)
+        data['test_queries']['full_neg'].update(x['full_neg'])
+        data['test_queries']['one_neg'].update(x['one_neg'])
 
     return data
 
@@ -135,7 +142,7 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
 
     print('Creating Intersection Operator..')
     # intersection-attention
-    inter_attn = IntersectConcatAttention(types=types, embed_dim=64, num_attn=1, activation='leakyrelu', f_activation='sigmoid', layernorm=True, use_post_mat=True)
+    inter_attn = IntersectConcatAttention(types=types, embed_dim=out_dims, num_attn=1, activation=torch.nn.LeakyReLU(), f_activation=torch.nn.Sigmoid(), layernorm=True, use_post_mat=True)
     inter_dec = SimpleSetIntersection(agg_func=torch.mean)
 
     # model
@@ -314,7 +321,7 @@ def test(model, queries, batch_size=128):
                 batch_scores = batch_scores.data.tolist()
 
                 # invert distances
-                batch_scores = [1/x for x in batch_scores]
+                batch_scores = [x for x in batch_scores]
 
                 # Percentile rank score: Given a query, one positive target cos score p, x negative target, and their cos score [n1, n2, ..., nx], See the rank of p in [n1, n2, ..., nx]
                 batch_perc_scores = []  # a list of percentile rank scores per query, APR is the average of all these scores

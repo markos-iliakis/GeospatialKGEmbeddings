@@ -112,10 +112,10 @@ class QueryEncoderDecoder(nn.Module):
             embeds2 = self.enc([query.anchor_nodes[1] for query in queries], formula.anchor_types[1])
 
             # Project the 2nd anchor node a2 through its relation p3 to inter node e1 (e1, p3, a2) creating a second box /embeds, offset_embeddings -> [embed_size {128}, batch_size]
-            embeds2 = self.path_dec(embeds2, self.graph._reverse_relation(formula.rels[1][1]))
+            embeds2 = self.path_dec.project(embeds2, self.graph._reverse_relation(formula.rels[1][1]))
 
             # intersect the 2 boxes / query_intersect_cen, query_intersection_off -> [batch_size, embed_dim]
-            query_intersection, embeds_inter = self.inter_dec(formula.rels[0][-1], [embeds1, embeds2])
+            query_intersection, embeds_inter = self.inter_dec([embeds1, embeds2])
             if self.use_inter_node and modelTraining:
                 # for 3-chain_inter, the inter node is in the query_graph
                 inter_nodes = [query.query_graph[1][2] for query in queries]
