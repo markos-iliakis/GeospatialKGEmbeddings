@@ -7,14 +7,14 @@ from help_functions import create_paths, create_architecture, train, load_data
 
 if __name__ == '__main__':
     batch_size = 2048
-    feat_embed_dim = 64
-    spa_embed_dim = 64
+    feat_embed_dim = 128
+    spa_embed_dim = 128
     max_iter = 20000
-    lr = 0.01
+    lr = 0.001
 
     # Load Data
     print('Loading graph data..')
-    data = load_data()
+    data = load_data(feat_embed_dim)
 
     # Create model
     print('Creating Architecture..')

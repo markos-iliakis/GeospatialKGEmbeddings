@@ -58,6 +58,7 @@ class DirectEncoder(nn.Module):
         feature_modules: a dict of embedding matrix by node type, each embed matrix shape: [num_ent_by_type + 2, embed_dim]
         """
         super(DirectEncoder, self).__init__()
+
         for name, module in feature_modules.items():
             self.add_module("feat-" + name, module)
         self.features = features

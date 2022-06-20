@@ -62,9 +62,9 @@ class QueryEncoderDecoder(nn.Module):
             offset_embeddings = torch.zeros_like(embeds)
 
             # Project the anchor node a1 and each inter node ei through its relation pi and create the answer box
-            for i in range(0, num_edges):
+            for i_rel in formula.rels[-1:0:-1]:
                 # embeds, offset_embeddings -> [embed_size {128}, batch_size]
-                embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(formula.rels[i]))
+                embeds, offset_embeddings = self.path_dec(embeds, offset_embeddings, self.graph._reverse_relation(i_rel))
 
             # Return the distance of the target from the box
             return self.dist_box(target_embeds, embeds.t(), offset_embeddings.t())

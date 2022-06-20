@@ -48,48 +48,39 @@ def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_pa
     id2type_path = data_path + 'id2type.json'
 
     # Unite all triples
-    unite_files(triples_path, types_geo_path, data_path)
-
-    # Make the entity2id, relation2id with inverses, relations2inverse and relationsID2Inverse files
-    make_id_files(new_triples_path, types_geo_path, data_path)
-
-    # Make the triples in the form of (subject_id, (subject_type, relation, object_type), object_id)
-    custom_triples = make_custom_triples(new_triples_path, classes_path, relationsID_path, entitiesID_path, data_path)
-
-    # Split the triples to train / valid / test and put them to pkl files
-    custom_triples_split(custom_triples, data_path)
-
-    # Make the graph file
-    make_graph(custom_triples, classes_path, entitiesID_path, graph_path, rid2inverse_path, id2type_path)
+        # unite_files(triples_path, types_geo_path, data_path)
+        #
+        # # Make the entity2id, relation2id with inverses, relations2inverse and relationsID2Inverse files
+        # make_id_files(new_triples_path, types_geo_path, data_path)
+        #
+        # # Make the triples in the form of (subject_id, (subject_type, relation, object_type), object_id)
+        # custom_triples = make_custom_triples(new_triples_path, classes_path, relationsID_path, entitiesID_path, data_path)
+        #
+        # # Split the triples to train / valid / test and put them to pkl files
+        # custom_triples_split(custom_triples, data_path)
+        #
+        # # Make the graph file
+        # make_graph(custom_triples, classes_path, entitiesID_path, graph_path, rid2inverse_path, id2type_path)
 
     # Make train / valid / test 1-chain queries
     make_single_edge_query_data(data_path, graph_path, 100)  # 100
 
-    # Make train / valid / test 2/3-chain queries
-    # mp_result_dir = data_path + 'train_queries_mp/'
-    # sample_new_clean(data_path, graph_path)
-    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_dir)  # 50 20000
-    #
-    # # Make train x-inter queries
-    # mp_result_dir = data_path + 'train_inter_queries_mp/'
-    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_dir)  # 50 10000
-    #
-    # # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
-    # id2geo = read_id2geo(id2geo_path)
-    # sample_new_clean(data_path, graph_path, id2geo=id2geo)
-    #
-    # # Make train x-inter queries, negative samples are geo-entities
-    # print("Do geo content sample")
-    # mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
-    # id2geo = read_id2geo(id2geo_path)
-    # make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
-    #
-    # mp_result_geo_dir = data_path + "train_queries_geo_mp/"
-    # id2geo = read_id2geo(id2geo_path)
-    # make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
+    # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
+    id2geo = read_id2geo(id2geo_path)
+    sample_new_clean(data_path, graph_path, id2geo=id2geo)
+
+    # Make train x-inter queries, negative samples are geo-entities
+    print("Do geo content sample")
+    mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
+    id2geo = read_id2geo(id2geo_path)
+    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
+
+    mp_result_geo_dir = data_path + "train_queries_geo_mp/"
+    id2geo = read_id2geo(id2geo_path)
+    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
 
 
-def load_data():
+def load_data(feat_embed_dim):
     data = dict()
 
     # Create paths
@@ -98,7 +89,7 @@ def load_data():
 
     # Load Graph
     print('Loading Graph..')
-    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(graph_path)
+    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(graph_path, feat_embed_dim)
 
     # Load queries of all types
     print('Loading Queries..')
@@ -107,20 +98,22 @@ def load_data():
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
     for file in os.listdir(train_path):
-        print(f'\t{file}')
-        data['train_queries'].update(load_queries_by_formula(train_path + file))
+        if file in ['train_edges.pkl', 'train_queries_2-geo.pkl', 'train_queries_3-geo.pkl']:
+            print(f'\t{file}')
+            data['train_queries'].update(load_queries_by_formula(train_path + file))
 
     for file in os.listdir(valid_path):
-        print(f'\t{file}')
-        x = load_test_queries_by_formula(valid_path + file)
-        data['valid_queries']['full_neg'].update(x['full_neg'])
-        data['valid_queries']['one_neg'].update(x['one_neg'])
+        if file in ['val_edges.pkl', 'val_queries_2-geo.pkl', 'val_queries_3-geo.pkl']:
+            print(f'\t{file}')
+            x = load_test_queries_by_formula(valid_path + file)
+            data['valid_queries']['full_neg'].update(x['full_neg'])
+            data['valid_queries']['one_neg'].update(x['one_neg'])
 
-    for file in os.listdir(test_path):
-        print(f'\t{file}')
-        x = load_test_queries_by_formula(test_path + file)
-        data['test_queries']['full_neg'].update(x['full_neg'])
-        data['test_queries']['one_neg'].update(x['one_neg'])
+    # for file in os.listdir(test_path):
+    #     print(f'\t{file}')
+    #     x = load_test_queries_by_formula(test_path + file)
+    #     data['test_queries']['full_neg'].update(x['full_neg'])
+    #     data['test_queries']['one_neg'].update(x['one_neg'])
 
     return data
 
@@ -132,8 +125,8 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
     print('Creating Encoder Operator..')
     # encoder
     feat_enc = DirectEncoder(graph.features, feature_modules)
-    ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=64, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
-    spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=64, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
+    ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=spa_embed_dim, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
+    spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=spa_embed_dim, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
     pos_enc = ExtentPositionEncoder(id2geo=read_id2geo(data_path + 'id2geo.json'), id2extent=read_id2extent(data_path + 'id2geo.json'), spa_enc=spa_enc, graph=graph)
     enc = NodeEncoder(feat_enc, pos_enc, agg_type='concat')
 
@@ -217,7 +210,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
                 loss += path_weight * model.box_loss(formula, train_batch)
 
         # Update loss
-        losses.append(loss.cpu())
+        losses.append(loss.data.tolist())
 
         # Compute Gradients
         loss.backward()
@@ -225,7 +218,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         # Update weights
         optimizer.step()
 
-        if iteration % 100 == 0:
+        if iteration % 1000 == 0:
             print('Validating..')
             # Validate
             aucs, aprs = test(model, val_queries)

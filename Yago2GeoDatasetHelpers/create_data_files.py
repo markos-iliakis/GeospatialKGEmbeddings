@@ -263,7 +263,7 @@ def custom_triples_split(triples_path, out_path):
 
 
 def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, rid2inverse_path, id2type_path,
-               embed_dim=64):
+               embed_dim=128):
     custom_triples = read_custom_triples(custom_triples_path)
     custom_triples = custom_triples[custom_triples['rel'] != 'triple']
 
@@ -327,15 +327,15 @@ def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, r
     # For each type set feature dimension equal to embed_dim
     feature_dims = {m: embed_dim for m in relations}
 
-    # For each type
-    feature_modules = dict()
-    for e_type in relations:
-        # initialize embedding matrix for each type with (num of embeddings = num of ent per type + 1, embed_dim = 10)
-        feature_modules[e_type] = torch.nn.Embedding(len(node_maps[e_type]) + 1, embed_dim)
+    # # For each type
+    # feature_modules = dict()
+    # for e_type in relations:
+    #     # initialize embedding matrix for each type with (num of embeddings = num of ent per type + 1, embed_dim = 10)
+    #     feature_modules[e_type] = torch.nn.Embedding(len(node_maps[e_type]) + 1, embed_dim)
+    #
+    #     # define embedding initialization method: normal dist
+    #     feature_modules[e_type].weight.data.normal_(0, 1. / embed_dim)
 
-        # define embedding initialization method: normal dist
-        feature_modules[e_type].weight.data.normal_(0, 1. / embed_dim)
-
-    pickle_dump([feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel_ids, id2type], graph_path)
+    pickle_dump([feature_dims, relations, adj_lists, node_maps, inv_rel_ids, id2type], graph_path)
 
     return
