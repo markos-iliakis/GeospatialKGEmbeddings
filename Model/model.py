@@ -169,6 +169,7 @@ class QueryEncoderDecoder(nn.Module):
             return self.cos(target_embeds, query_intersection)
 
     def dist_box(self, entity_embedding, query_center_embedding, query_offset_embedding):
+        in_box = False
         entity_embedding = entity_embedding.t()
 
         delta = (entity_embedding - query_center_embedding).abs()
@@ -181,8 +182,10 @@ class QueryEncoderDecoder(nn.Module):
         # Downweight the distance inside the box as we regard entities inside the box close enough to the center
         distance_box = torch.norm(distance_out, p=1, dim=-1) + self.a * torch.norm(distance_in, p=1, dim=-1)
 
-        # logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.a * torch.norm(distance_in, p=1, dim=-1)
-        return distance_box
+        if distance_out == 0:
+            in_box = True
+
+        return distance_box, in_box
 
     def box_loss(self, formula, queries, hard_negatives=False):
         if hard_negatives:
@@ -192,8 +195,8 @@ class QueryEncoderDecoder(nn.Module):
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
-        positive_dist_box = self.forward(formula, queries, [query.target_node for query in queries])
-        negative_dist_box = self.forward(formula, queries, neg_nodes)
+        positive_dist_box, in_box = self.forward(formula, queries, [query.target_node for query in queries])
+        negative_dist_box, in_box = self.forward(formula, queries, neg_nodes)
 
         negative_score = F.logsigmoid(negative_dist_box - self.gamma)  # .mean() if negatives more than 1/query
         positive_score = F.logsigmoid(self.gamma - positive_dist_box)
@@ -211,10 +214,11 @@ class QueryEncoderDecoder(nn.Module):
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
-        affs = self.forward(formula, queries, [query.target_node for query in queries], modelTraining=True)
-        neg_affs = self.forward(formula, queries, neg_nodes, modelTraining=True)
         # affs (neg_affs) is the cosine similarity between golden (negative) node embedding and predicted embedding
         # the larger affs (the smaller the neg_affs), the better the prediction is
+        affs = self.forward(formula, queries, [query.target_node for query in queries], modelTraining=True)
+        neg_affs = self.forward(formula, queries, neg_nodes, modelTraining=True)
+
         loss = margin - (affs - neg_affs)
         loss = torch.clamp(loss, min=0)
         loss = loss.mean()

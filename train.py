@@ -6,7 +6,7 @@ from Yago2GeoDatasetHelpers.query_sampling import load_queries_by_formula, load_
 from help_functions import create_paths, create_architecture, train, load_data
 
 if __name__ == '__main__':
-    batch_size = 256
+    batch_size = 2048
     feat_embed_dim = 64
     spa_embed_dim = 64
     max_iter = 20000

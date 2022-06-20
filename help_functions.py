@@ -19,7 +19,7 @@ from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, s
 
 
 def create_paths():
-    sub_dataset = '_grc'
+    sub_dataset = '_uk'
     materialization = ''  # 'materialized/'
     triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
     types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
@@ -224,18 +224,19 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         # Update weights
         optimizer.step()
 
-        # Validate
-        aucs, aprs = test(model, val_queries)
-
-        if iteration % 1 == 0:
+        if iteration % 100 == 0:
+            # Validate
+            print('Validating..')
+            aucs, aprs = test(model, val_queries)
             print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{loss}')
+            print('Training..')
 
         # if check_conv(losses, 1e-6):
         #     print(f'Model Converged at Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs}')
         #     break
 
 
-def test(model, queries, batch_size=128):
+def test(model, queries, batch_size=2048):
     """
     Given queries, evaluate AUC and APR by negative sampling and hard negative sampling
     Args:
