@@ -109,10 +109,16 @@ def load_data():
         data['train_queries'].update(load_queries_by_formula(train_path + file))
 
     for file in os.listdir(valid_path):
-        data['valid_queries'] = load_test_queries_by_formula(valid_path + file)
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(valid_path + file)
+        data['valid_queries']['full_neg'].update(x['full_neg'])
+        data['valid_queries']['one_neg'].update(x['one_neg'])
 
     for file in os.listdir(test_path):
-        data['test_queries'] = load_test_queries_by_formula(test_path + file)
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(test_path + file)
+        data['test_queries']['full_neg'].update(x['full_neg'])
+        data['test_queries']['one_neg'].update(x['one_neg'])
 
     return data
 
