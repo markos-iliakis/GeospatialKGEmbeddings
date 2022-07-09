@@ -135,7 +135,10 @@ class Query:
             self.formula = Formula(query_type, (query_graph[1][1], (query_graph[2][0][1], query_graph[2][1][1])))
             self.anchor_nodes = (query_graph[2][0][-1], query_graph[2][1][-1])
 
-        self.target_node = query_graph[1][0]
+        for id in self.anchor_nodes:
+            self.anchor_nodes = str(id)
+
+        self.target_node = str(query_graph[1][0])
 
         if keep_graph:
             self.query_graph = query_graph

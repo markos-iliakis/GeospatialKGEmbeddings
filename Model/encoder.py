@@ -272,7 +272,7 @@ class NodeEncoder(nn.Module):
         if feat_enc is None and pos_enc is None:
             raise Exception("pos_enc and feat_enc are both None!!")
 
-    def forward(self, nodes, mode, offset=None):
+    def forward(self, nodes, e_type, offset=None):
         """
         Args:
             nodes: a list of node ids
@@ -289,7 +289,7 @@ class NodeEncoder(nn.Module):
             # we have both feature encoder and position encoder
 
             # feat_embeds: [embed_dim, batch_size]
-            feat_embeds = self.feat_enc(nodes, mode, offset=offset)
+            feat_embeds = self.feat_enc(nodes, e_type, offset=offset)
 
             # pos_embeds: [embed_dim, batch_size]
             pos_embeds = self.pos_enc(nodes)
@@ -323,7 +323,7 @@ class NodeEncoder(nn.Module):
             # we only have feature encoder
 
             # feat_embeds: [embed_dim, num_ent]
-            feat_embeds = self.feat_enc(nodes, mode, offset=offset)
+            feat_embeds = self.feat_enc(nodes, e_type, offset=offset)
 
             embeds = feat_embeds
 

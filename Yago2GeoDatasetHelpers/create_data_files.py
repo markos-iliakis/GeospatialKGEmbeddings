@@ -339,3 +339,20 @@ def make_graph(custom_triples_path, classes_path, entitiesID_path, graph_path, r
     pickle_dump([feature_dims, relations, adj_lists, node_maps, inv_rel_ids, id2type], graph_path)
 
     return
+
+
+def create_id2type(entitiesID_path, classes_path, id2type_path):
+    id2type = dict()
+
+    # Create id to type
+    entities_id = pd.read_csv(entitiesID_path, sep="\t", header=None)
+    entities_id.columns = ['entity', 'id']
+
+    with open(classes_path) as json_file:
+        classes = json.load(json_file)
+
+        for index, row in entities_id.iterrows():
+            id2type[row['id']] = classes[row['entity']]
+
+    with open(id2type_path, 'w') as file:
+        json.dump(id2type, file)

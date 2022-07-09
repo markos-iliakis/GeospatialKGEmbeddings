@@ -1,3 +1,4 @@
+import json
 import os
 
 import numpy as np
@@ -14,18 +15,19 @@ from Model.encoder import DirectEncoder, TheoryGridCellSpatialRelationEncoder, E
 from Model.model import QueryEncoderDecoder
 from Yago2GeoDatasetHelpers.create_data_files import unite_files, make_id_files, make_custom_triples, \
     custom_triples_split, make_graph
-from Yago2GeoDatasetHelpers.dataset_helper_functions import read_id2geo, read_id2extent, read_graph
+from Yago2GeoDatasetHelpers.dataset_helper_functions import read_id2geo, read_id2extent, read_graph, pickle_load
 from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, sample_new_clean, \
     make_multiedge_query_data, make_inter_query_data, load_queries_by_formula, load_test_queries_by_formula
 
 
 def create_paths():
-    sub_dataset = '_uk'
+    dataset = 'se-kge'  # yago2geo, se-kge
+    sub_dataset = ''
     materialization = ''  # 'materialized/'
-    triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
-    types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
+    triples_path = 'Datasets/' + dataset + sub_dataset + '/triples/' + materialization
+    types_geo_path = 'Datasets/' + dataset + sub_dataset + '/geo_classes/'
 
-    data_path = 'Data/yago2geo' + sub_dataset + '/'
+    data_path = 'Data/' + dataset + sub_dataset + '/'
     classes_path = data_path + 'entity2type.json'
     entitiesID_path = data_path + 'entity2id.txt'
     graph_path = data_path + 'graph.pkl'
@@ -33,51 +35,60 @@ def create_paths():
     valid_path = data_path + 'val_queries/'
     test_path = data_path + 'test_queries/'
 
-    if sub_dataset != '':
-        print(f'Training on {sub_dataset.split("_")[1]}')
+    print(f'Training on {dataset + sub_dataset}')
 
-    return data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path
+    return {
+        'data_path': data_path,
+        'classes_path': classes_path,
+        'entitiesID_path': entitiesID_path,
+        'graph_path': graph_path,
+        'triples_path': triples_path,
+        'types_geo_path': types_geo_path,
+        'train_path': train_path,
+        'valid_path': valid_path,
+        'test_path': test_path
+    }
 
 
-def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path):
-    new_triples_path = data_path + 'united_triples.nt'
-    rid2inverse_path = data_path + 'rid2inverse.json'
-    relationsID_path = data_path + 'relation2id.txt'
-    id2geo_path = data_path + 'id2geo.json'
-    custom_triples = data_path + 'custom_triples.txt'
-    id2type_path = data_path + 'id2type.json'
+def create_data(paths):
+    new_triples_path = paths['data_path'] + 'united_triples.nt'
+    rid2inverse_path = paths['data_path'] + 'rid2inverse.json'
+    relationsID_path = paths['data_path'] + 'relation2id.txt'
+    id2geo_path = paths['data_path'] + 'id2geo.json'
+    custom_triples = paths['data_path'] + 'custom_triples.txt'
+    id2type_path = paths['data_path'] + 'id2type.json'
 
     # Unite all triples
-        # unite_files(triples_path, types_geo_path, data_path)
-        #
-        # # Make the entity2id, relation2id with inverses, relations2inverse and relationsID2Inverse files
-        # make_id_files(new_triples_path, types_geo_path, data_path)
-        #
-        # # Make the triples in the form of (subject_id, (subject_type, relation, object_type), object_id)
-        # custom_triples = make_custom_triples(new_triples_path, classes_path, relationsID_path, entitiesID_path, data_path)
-        #
-        # # Split the triples to train / valid / test and put them to pkl files
-        # custom_triples_split(custom_triples, data_path)
-        #
-        # # Make the graph file
-        # make_graph(custom_triples, classes_path, entitiesID_path, graph_path, rid2inverse_path, id2type_path)
+    unite_files( paths['triples_path'],  paths['types_geo_path'], paths['data_path'])
+
+    # Make the entity2id, relation2id with inverses, relations2inverse and relationsID2Inverse files
+    make_id_files(new_triples_path,  paths['types_geo_path'], paths['data_path'])
+
+    # Make the triples in the form of (subject_id, (subject_type, relation, object_type), object_id)
+    custom_triples = make_custom_triples(new_triples_path,  paths['classes_path'], relationsID_path,  paths['entitiesID_path'], paths['data_path'])
+
+    # Split the triples to train / valid / test and put them to pkl files
+    custom_triples_split(custom_triples, paths['data_path'])
+
+    # Make the graph file
+    make_graph(custom_triples,  paths['classes_path'],  paths['entitiesID_path'],  paths['graph_path'], rid2inverse_path, id2type_path)
 
     # Make train / valid / test 1-chain queries
-    make_single_edge_query_data(data_path, graph_path, 100)  # 100
+    make_single_edge_query_data(paths['data_path'],  paths['graph_path'], 100)  # 100
 
     # Make valid/testing 2/3 edges geographic queries, negative samples are geo-entities
     id2geo = read_id2geo(id2geo_path)
-    sample_new_clean(data_path, graph_path, id2geo=id2geo)
+    sample_new_clean(paths['data_path'],  paths['graph_path'], id2geo=id2geo)
 
     # Make train x-inter queries, negative samples are geo-entities
     print("Do geo content sample")
-    mp_result_geo_dir = data_path + "train_inter_queries_geo_mp/"
+    mp_result_geo_dir = paths['data_path'] + "train_inter_queries_geo_mp/"
     id2geo = read_id2geo(id2geo_path)
-    make_inter_query_data(data_path, graph_path, 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
+    make_inter_query_data(paths['data_path'],  paths['graph_path'], 50, 10000, max_inter_size=3, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 10000
 
-    mp_result_geo_dir = data_path + "train_queries_geo_mp/"
+    mp_result_geo_dir = paths['data_path'] + "train_queries_geo_mp/"
     id2geo = read_id2geo(id2geo_path)
-    make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
+    make_multiedge_query_data(paths['data_path'],  paths['graph_path'], 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
 
 
 def load_data(feat_embed_dim):
@@ -85,11 +96,11 @@ def load_data(feat_embed_dim):
 
     # Create paths
     print('Creating Paths..')
-    data['path'], classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path = create_paths()
-
+    paths = create_paths()
+    data['path'] = paths['data_path']
     # Load Graph
     print('Loading Graph..')
-    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(graph_path, feat_embed_dim)
+    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(paths['graph_path'], feat_embed_dim)
 
     # Load queries of all types
     print('Loading Queries..')
@@ -97,17 +108,15 @@ def load_data(feat_embed_dim):
     data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
-    for file in os.listdir(train_path):
-        if file in ['train_edges.pkl', 'train_queries_2-geo.pkl', 'train_queries_3-geo.pkl']:
-            print(f'\t{file}')
-            data['train_queries'].update(load_queries_by_formula(train_path + file))
+    for file in os.listdir(paths['train_path']):
+        print(f'\t{file}')
+        data['train_queries'].update(load_queries_by_formula(paths['train_path'] + file))
 
-    for file in os.listdir(valid_path):
-        if file in ['val_edges.pkl', 'val_queries_2-geo.pkl', 'val_queries_3-geo.pkl']:
-            print(f'\t{file}')
-            x = load_test_queries_by_formula(valid_path + file)
-            data['valid_queries']['full_neg'].update(x['full_neg'])
-            data['valid_queries']['one_neg'].update(x['one_neg'])
+    for file in os.listdir(paths['valid_path']):
+        print(f'\t{file}')
+        x = load_test_queries_by_formula(paths['valid_path'] + file)
+        data['valid_queries']['full_neg'].update(x['full_neg'])
+        data['valid_queries']['one_neg'].update(x['one_neg'])
 
     # for file in os.listdir(test_path):
     #     print(f'\t{file}')
@@ -122,12 +131,19 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
     out_dims = feat_embed_dim + spa_embed_dim
     types = [type for type in graph.relations]
 
+    if 'se-kge' in data_path:
+        geo_info = pickle_load(data_path + 'id2geo_proj.pkl')
+        geo_info_ext = pickle_load(data_path + 'id2extent_proj.pkl')
+    else:
+        geo_info = read_id2geo(data_path + 'id2geo.json')
+        geo_info_ext = read_id2extent(data_path + 'id2geo.json')
+
     print('Creating Encoder Operator..')
     # encoder
     feat_enc = DirectEncoder(graph.features, feature_modules)
     ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=spa_embed_dim, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
     spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=spa_embed_dim, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
-    pos_enc = ExtentPositionEncoder(id2geo=read_id2geo(data_path + 'id2geo.json'), id2extent=read_id2extent(data_path + 'id2geo.json'), spa_enc=spa_enc, graph=graph)
+    pos_enc = ExtentPositionEncoder(id2geo=geo_info, id2extent=geo_info_ext, spa_enc=spa_enc, graph=graph)
     enc = NodeEncoder(feat_enc, pos_enc, agg_type='concat')
 
     print('Creating Projection Operator..')
@@ -181,12 +197,13 @@ def get_batch(queries, iteration, batch_size):
     return formula, queries
 
 
-def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
+def train(model, optimizer, batch_size, train_queries, val_queries, max_iter, name):
     inter_weight = 0.005
     path_weight = 0.01
     losses = []
 
     for iteration in range(max_iter):
+        model.train()
         loss = 0
 
         # Reset gradients
@@ -209,7 +226,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
                 # Compute loss
                 loss += path_weight * model.box_loss(formula, train_batch)
 
-        # Update loss
+        # Update losses
         losses.append(loss.data.tolist())
 
         # Compute Gradients
@@ -223,11 +240,11 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
             # Validate
             aucs, aprs = test(model, val_queries)
             print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{mean(losses)}')
-            print('Training..')
 
-        # if check_conv(losses, 1e-6):
-        #     print(f'Model Converged at Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs}')
-        #     break
+            # Save the model
+            torch.save(model.state_dict(), f'Checkpoints/{name}')
+
+            print('Training..')
 
 
 def test(model, queries, batch_size=2048):
@@ -251,6 +268,7 @@ def test(model, queries, batch_size=2048):
     aucs = {}
     aprs = {}
     random.seed(0)
+    model.eval()
 
     # Get all the query types available
     query_types = [qt for qt in queries['one_neg']]
