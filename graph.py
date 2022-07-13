@@ -135,8 +135,10 @@ class Query:
             self.formula = Formula(query_type, (query_graph[1][1], (query_graph[2][0][1], query_graph[2][1][1])))
             self.anchor_nodes = (query_graph[2][0][-1], query_graph[2][1][-1])
 
+        x = list()
         for id in self.anchor_nodes:
-            self.anchor_nodes = str(id)
+            x.append(str(id))
+        self.anchor_nodes = x
 
         self.target_node = str(query_graph[1][0])
 
@@ -146,14 +148,15 @@ class Query:
             self.query_graph = None
 
         if neg_samples is not None:
-            self.neg_samples = list(neg_samples) if len(neg_samples) < neg_sample_max else random.sample(neg_samples,
-                                                                                                         neg_sample_max)
+            self.neg_samples = list(neg_samples) if len(neg_samples) < neg_sample_max else random.sample(neg_samples, neg_sample_max)
+            self.neg_samples = [str(sample) for sample in self.neg_samples]
         else:
             self.neg_samples = None
 
         if hard_neg_samples is not None:
             self.hard_neg_samples = list(hard_neg_samples) if len(
                 hard_neg_samples) <= neg_sample_max else random.sample(hard_neg_samples, neg_sample_max)
+            self.hard_neg_samples = [str(sample) for sample in self.hard_neg_samples]
         else:
             self.hard_neg_samples = None
 
@@ -253,7 +256,8 @@ class Graph:
         self.feature_dims = feature_dims
         self.relations = relations
         self.adj_lists = adj_lists
-        self.rid2inverse = rid2inverse
+        self.rid2inverse = {str(key): str(value) for key, value in rid2inverse.items()}
+
         self.full_sets = defaultdict(
             set)  # a dict from node type to a set of all node ids with this type and appear as the head of a triple
         self.full_lists = {}

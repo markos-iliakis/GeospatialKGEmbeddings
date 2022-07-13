@@ -98,9 +98,26 @@ def load_data(feat_embed_dim):
     print('Creating Paths..')
     paths = create_paths()
     data['path'] = paths['data_path']
+
     # Load Graph
     print('Loading Graph..')
     data['graph'], data['feature_modules'], data['node_maps'] = read_graph(paths['graph_path'], feat_embed_dim)
+
+    # Load geo ids
+    geo_info = pickle_load(data['path'] + 'id2geo_proj.pkl')
+    geo_info_ext = pickle_load(data['path'] + 'id2extent_proj.pkl')
+    data['geo_ids'] = list(geo_info.keys()) + list(geo_info_ext.keys())
+
+    # Remove non-geo-ids ids from graph.full_lists
+    removed_counter = 0
+    for type in data['graph'].full_lists.keys():
+        ids = data['graph'].full_lists[type].copy()
+        for id in ids:
+            if id not in data['geo_ids']:
+                data['graph'].full_lists[type].remove(id)
+                removed_counter += 1
+
+    print(f'Removed {removed_counter} node ids from graph.full_lists')
 
     # Load queries of all types
     print('Loading Queries..')
@@ -108,15 +125,43 @@ def load_data(feat_embed_dim):
     data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
+    removed_counter = 0
     for file in os.listdir(paths['train_path']):
         print(f'\t{file}')
-        data['train_queries'].update(load_queries_by_formula(paths['train_path'] + file))
+        train_queries = load_queries_by_formula(paths['train_path'] + file)
 
+        # check if every id is in geo ids
+        for type in train_queries:
+            for formula in train_queries[type]:
+                queries = train_queries[type][formula].copy()
+                for query in queries:
+                    if invalid_ids(query, data['geo_ids']):
+                        train_queries[type][formula].remove(query)
+                        removed_counter += 1
+
+        data['train_queries'].update(train_queries)
+
+    print(f'Removed {removed_counter} train queries')
+
+    removed_counter = 0
     for file in os.listdir(paths['valid_path']):
         print(f'\t{file}')
-        x = load_test_queries_by_formula(paths['valid_path'] + file)
-        data['valid_queries']['full_neg'].update(x['full_neg'])
-        data['valid_queries']['one_neg'].update(x['one_neg'])
+        valid_queries = load_test_queries_by_formula(paths['valid_path'] + file)
+
+        # check if every id is in geo ids
+        for neg_type in valid_queries:
+            for type in valid_queries[neg_type]:
+                for formula in valid_queries[neg_type][type]:
+                    queries = valid_queries[neg_type][type][formula].copy()
+                    for query in queries:
+                        if invalid_ids(query, data['geo_ids']):
+                            valid_queries[neg_type][type][formula].remove(query)
+                            removed_counter += 1
+
+        data['valid_queries']['full_neg'].update(valid_queries['full_neg'])
+        data['valid_queries']['one_neg'].update(valid_queries['one_neg'])
+
+    print(f'Removed {removed_counter} validation queries')
 
     # for file in os.listdir(test_path):
     #     print(f'\t{file}')
@@ -127,13 +172,30 @@ def load_data(feat_embed_dim):
     return data
 
 
+def invalid_ids(query, geo_ids):
+    # Check query ids
+    query_ids = query.anchor_nodes + [query.target_node]
+
+    if query.hard_neg_samples is not None:
+        query_ids += query.hard_neg_samples
+    if query.neg_samples is not None:
+        query_ids += query.neg_samples
+
+    if not all(int(id) in geo_ids for id in query_ids):
+        return True
+    else:
+        return False
+
+
 def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_embed_dim, do_train):
     out_dims = feat_embed_dim + spa_embed_dim
     types = [type for type in graph.relations]
 
     if 'se-kge' in data_path:
         geo_info = pickle_load(data_path + 'id2geo_proj.pkl')
+        geo_info = {str(key): geo_info[key] for key in geo_info.keys()}
         geo_info_ext = pickle_load(data_path + 'id2extent_proj.pkl')
+        geo_info_ext = {str(key): [[geo_info_ext[key][0], geo_info_ext[key][1]], [geo_info_ext[key][2], geo_info_ext[key][3]]] for key in geo_info_ext.keys()}
     else:
         geo_info = read_id2geo(data_path + 'id2geo.json')
         geo_info_ext = read_id2extent(data_path + 'id2geo.json')
@@ -197,7 +259,7 @@ def get_batch(queries, iteration, batch_size):
     return formula, queries
 
 
-def train(model, optimizer, batch_size, train_queries, val_queries, max_iter, name):
+def train(model, optimizer, batch_size, data, max_iter, name):
     inter_weight = 0.005
     path_weight = 0.01
     losses = []
@@ -209,13 +271,13 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter, na
         # Reset gradients
         optimizer.zero_grad()
 
-        for query_type in train_queries:
+        for query_type in data['train_queries']:
             # Get the bach / for each batch
-            formula, train_batch = get_batch(train_queries[query_type], iteration, batch_size)
+            formula, train_batch = get_batch(data['train_queries'][query_type], iteration, batch_size)
 
             if query_type == '1-chain':
                 # Compute loss
-                loss += model.box_loss(formula, train_batch)
+                loss += model.box_loss(formula, train_batch, data['geo_ids'])
 
             elif 'inter' in query_type:  # 2-inter, 3-inter, 3-inter-chain, 3-chain-inter
                 # Compute loss
@@ -238,7 +300,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter, na
         if iteration % 1000 == 0:
             print('Validating..')
             # Validate
-            aucs, aprs = test(model, val_queries)
+            aucs, aprs = test(model, data['valid_queries'])
             print(f'Iteration {iteration} : \n\taucs : \n\t\t{aucs} \n\taprs : \n\t\t{aprs} \n\tloss : \n\t\t{mean(losses)}')
 
             # Save the model
@@ -332,9 +394,6 @@ def test(model, queries, batch_size=2048):
                 #                batch_scores[N:] correspond to cos score for each negative query-target which append in order, the total number of scores is sum(lengths)
                 batch_scores, in_box = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
                 batch_scores = batch_scores.data.tolist()
-
-                # invert distances
-                batch_scores = [1/x for x in batch_scores]
 
                 # Percentile rank score: Given a query, one positive target cos score p, x negative target, and their cos score [n1, n2, ..., nx], See the rank of p in [n1, n2, ..., nx]
                 batch_perc_scores = []  # a list of percentile rank scores per query, APR is the average of all these scores

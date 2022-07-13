@@ -19,6 +19,7 @@ def geo_lookup(nodes, id2geo, add_dim=-1, id2extent=None, do_extent_sample=False
 
     """
     coord_tensor = []
+    counter = 0
     for i, eid in enumerate(nodes):
         if eid in id2extent:
             if do_extent_sample:
@@ -28,13 +29,19 @@ def geo_lookup(nodes, id2geo, add_dim=-1, id2extent=None, do_extent_sample=False
                 coords = [x, y]
             else:
                 coords = list(id2geo[eid])
-        else:
+        elif eid in id2geo:
             coords = list(id2geo[eid])
+        else:
+            counter += 1
+            coords = [0, 0]
+
         if add_dim == -1:
             coord_tensor.append(coords)
         elif add_dim == 1:
             coord_tensor.append([coords])
 
+    if counter > 0:
+        print(f'Entities not found: {counter}/{len(nodes)}')
     return coord_tensor
 
 

@@ -31,4 +31,4 @@ if __name__ == '__main__':
 
     # Train the model
     print('Training..')
-    train(model, optimizer, batch_size, data['train_queries'], data['valid_queries'], max_iter, name)
+    train(model, optimizer, batch_size, data, max_iter, name)

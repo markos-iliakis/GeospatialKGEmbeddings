@@ -197,11 +197,11 @@ class QueryEncoderDecoder(nn.Module):
 
         return distance_box, in_box
 
-    def box_loss(self, formula, queries, hard_negatives=False):
+    def box_loss(self, formula, queries, geo_ids=None, hard_negatives=False):
         if hard_negatives:
             neg_nodes = [random.choice(query.hard_neg_samples) for query in queries]
         elif formula.query_type == "1-chain":
-            neg_nodes = [random.choice(self.graph.full_lists[formula.target_type]) for _ in queries]
+            neg_nodes = [str(random.choice(self.graph.full_lists[formula.target_type])) for _ in queries]
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
