@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
     # Load Data
     print('Loading graph data..')
-    data = load_data()
+    data = load_data(feat_embed_dim)
 
     # Create model
     print('Creating Architecture..')

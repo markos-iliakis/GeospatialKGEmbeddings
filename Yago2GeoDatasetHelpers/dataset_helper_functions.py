@@ -123,7 +123,7 @@ def read_id2extent(in_path):
     return id2extent
 
 
-def read_graph(graph_path):
+def read_graph(graph_path, feat_embed_dim):
     if 'se-kge' in graph_path:
         [relations, adj_lists, node_maps, inv_rel] = pickle_load(graph_path)
 
@@ -138,9 +138,18 @@ def read_graph(graph_path):
     elif 'yago2geo' in graph_path:
         [feature_dims, relations, adj_lists, node_maps, inv_rel, id2type] = pickle_load(graph_path)
 
+    feature_modules = dict()
+    for type in relations:  # relations contains all types in the first level
+        # initialize embedding matrix for each type with (num of embeddings = num of ent per type + 1, embed_dim = 10)
+        feature_modules[type] = torch.nn.Embedding(len(node_maps[type]) + 1, feat_embed_dim)
+
+        # define embedding initialization method: normal dist
+        feature_modules[type].weight.data.normal_(0, 1. / feat_embed_dim)
+
     def features(nodes, e_type):
         return feature_modules[e_type](
-            torch.autograd.Variable(torch.LongTensor([node_maps[e_type][n] for n in nodes]).to('cuda') + 1))  # ...nodes]).to('cuda')
+            torch.autograd.Variable(
+                torch.LongTensor([node_maps[e_type][n] for n in nodes]).to('cuda') + 1))  # ...nodes]).to('cuda')
 
     graph = Graph(features, feature_dims, relations, adj_lists, inv_rel, id2type)
     return graph, feature_modules, node_maps

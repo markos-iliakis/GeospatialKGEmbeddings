@@ -98,7 +98,7 @@ def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_pa
     make_multiedge_query_data(data_path, graph_path, 50, 20000, mp_result_dir=mp_result_geo_dir, id2geo=id2geo)  # 50 20000
 
 
-def load_data():
+def load_data(feat_embed_dim):
     data = dict()
 
     # Create paths
@@ -108,7 +108,7 @@ def load_data():
 
     # Load Graph
     print('Loading Graph..')
-    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(paths['graph_path'])
+    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(paths['graph_path'], feat_embed_dim)
 
     # Load queries of all types
     print('Loading Queries..')
