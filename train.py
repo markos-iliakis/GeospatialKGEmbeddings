@@ -10,7 +10,7 @@ if __name__ == '__main__':
     batch_size = 2048
     feat_embed_dim = 128
     spa_embed_dim = 128
-    max_iter = 22100
+    max_iter = 30100
     lr = 0.001
     name = f'se-kge_iter-{max_iter-100}_feat-{feat_embed_dim}_spa-{spa_embed_dim}'
 

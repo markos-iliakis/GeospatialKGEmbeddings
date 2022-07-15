@@ -395,6 +395,9 @@ def test(model, queries, batch_size=2048):
                 batch_scores, in_box = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
                 batch_scores = batch_scores.data.tolist()
 
+                # invert distances
+                batch_scores = [1 / x for x in batch_scores]
+
                 # Percentile rank score: Given a query, one positive target cos score p, x negative target, and their cos score [n1, n2, ..., nx], See the rank of p in [n1, n2, ..., nx]
                 batch_perc_scores = []  # a list of percentile rank scores per query, APR is the average of all these scores
                 cum_sum = 0
