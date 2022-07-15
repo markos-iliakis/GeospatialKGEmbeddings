@@ -19,7 +19,7 @@ from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, s
 
 
 def create_paths():
-    sub_dataset = '_uk'
+    sub_dataset = ''
     materialization = ''  # 'materialized/'
     triples_path = 'Datasets/yago2geo' + sub_dataset + '/triples/' + materialization
     types_geo_path = 'Datasets/yago2geo' + sub_dataset + '/geo_classes/'
@@ -35,7 +35,17 @@ def create_paths():
     if sub_dataset != '':
         print(f'Working on {sub_dataset.split("_")[1]}')
 
-    return data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path
+    return {
+        'data_path': data_path,
+        'classes_path': classes_path,
+        'entitiesID_path': entitiesID_path,
+        'graph_path': graph_path,
+        'triples_path': triples_path,
+        'types_geo_path': types_geo_path,
+        'train_path': train_path,
+        'valid_path': valid_path,
+        'test_path': test_path
+    }
 
 
 def create_data(data_path, classes_path, entitiesID_path, graph_path, triples_path, types_geo_path):
@@ -93,11 +103,12 @@ def load_data():
 
     # Create paths
     print('Creating Paths..')
-    data['path'], classes_path, entitiesID_path, graph_path, triples_path, types_geo_path, train_path, valid_path, test_path = create_paths()
+    paths = create_paths()
+    data['path'] = paths['data_path']
 
     # Load Graph
     print('Loading Graph..')
-    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(graph_path)
+    data['graph'], data['feature_modules'], data['node_maps'] = read_graph(data['graph_path'])
 
     # Load queries of all types
     print('Loading Queries..')
@@ -105,19 +116,19 @@ def load_data():
     data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
-    for file in os.listdir(train_path):
+    for file in os.listdir(data['train_path']):
         print(f'\t{file}')
-        data['train_queries'].update(load_queries_by_formula(train_path + file))
+        data['train_queries'].update(load_queries_by_formula(data['train_path'] + file))
 
-    for file in os.listdir(valid_path):
+    for file in os.listdir(data['valid_path']):
         print(f'\t{file}')
-        x = load_test_queries_by_formula(valid_path + file)
+        x = load_test_queries_by_formula(data['valid_path'] + file)
         data['valid_queries']['full_neg'].update(x['full_neg'])
         data['valid_queries']['one_neg'].update(x['one_neg'])
 
-    for file in os.listdir(test_path):
+    for file in os.listdir(data['test_path']):
         print(f'\t{file}')
-        x = load_test_queries_by_formula(test_path + file)
+        x = load_test_queries_by_formula(data['test_path'] + file)
         data['test_queries']['full_neg'].update(x['full_neg'])
         data['test_queries']['one_neg'].update(x['one_neg'])
 
