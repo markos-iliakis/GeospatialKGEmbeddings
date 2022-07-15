@@ -13,7 +13,7 @@ from Model.encoder import DirectEncoder, TheoryGridCellSpatialRelationEncoder, E
 from Model.model import QueryEncoderDecoder
 from Yago2GeoDatasetHelpers.create_data_files import unite_files, make_id_files, make_custom_triples, \
     custom_triples_split, make_graph
-from Yago2GeoDatasetHelpers.dataset_helper_functions import read_id2geo, read_id2extent, read_graph
+from Yago2GeoDatasetHelpers.dataset_helper_functions import read_id2geo, read_id2extent, read_graph, pickle_load
 from Yago2GeoDatasetHelpers.query_sampling import make_single_edge_query_data, sample_new_clean, \
     make_multiedge_query_data, make_inter_query_data, load_queries_by_formula, load_test_queries_by_formula
 
@@ -110,41 +110,111 @@ def load_data(feat_embed_dim):
     print('Loading Graph..')
     data['graph'], data['feature_modules'], data['node_maps'] = read_graph(paths['graph_path'], feat_embed_dim)
 
+    # Load geo ids
+    geo_info = pickle_load(data['path'] + 'id2geo_proj.pkl')
+    geo_info_ext = pickle_load(data['path'] + 'id2extent_proj.pkl')
+    data['geo_ids'] = list(geo_info.keys()) + list(geo_info_ext.keys())
+
+    # Remove non-geo-ids ids from graph.full_lists
+    removed_counter = 0
+    for type in data['graph'].full_lists.keys():
+        ids = data['graph'].full_lists[type].copy()
+        for id in ids:
+            if id not in data['geo_ids']:
+                data['graph'].full_lists[type].remove(id)
+                removed_counter += 1
+
+    print(f'Removed {removed_counter} node ids from graph.full_lists')
+
     # Load queries of all types
     print('Loading Queries..')
     data['train_queries'] = dict()
     data['valid_queries'] = {'full_neg': dict(), 'one_neg': dict()}
     data['test_queries'] = {'full_neg': dict(), 'one_neg': dict()}
 
+    removed_counter = 0
     for file in os.listdir(paths['train_path']):
         print(f'\t{file}')
-        data['train_queries'].update(load_queries_by_formula(paths['train_path'] + file))
+        train_queries = load_queries_by_formula(paths['train_path'] + file)
 
+        # check if every id is in geo ids
+        for type in train_queries:
+            for formula in train_queries[type]:
+                queries = train_queries[type][formula].copy()
+                for query in queries:
+                    if invalid_ids(query, data['geo_ids']):
+                        train_queries[type][formula].remove(query)
+                        removed_counter += 1
+
+        data['train_queries'].update(train_queries)
+
+    print(f'Removed {removed_counter} train queries')
+
+    removed_counter = 0
     for file in os.listdir(paths['valid_path']):
         print(f'\t{file}')
-        x = load_test_queries_by_formula(paths['valid_path'] + file)
-        data['valid_queries']['full_neg'].update(x['full_neg'])
-        data['valid_queries']['one_neg'].update(x['one_neg'])
+        valid_queries = load_test_queries_by_formula(paths['valid_path'] + file)
 
-    for file in os.listdir(paths['test_path']):
-        print(f'\t{file}')
-        x = load_test_queries_by_formula(paths['test_path'] + file)
-        data['test_queries']['full_neg'].update(x['full_neg'])
-        data['test_queries']['one_neg'].update(x['one_neg'])
+        # check if every id is in geo ids
+        for neg_type in valid_queries:
+            for type in valid_queries[neg_type]:
+                for formula in valid_queries[neg_type][type]:
+                    queries = valid_queries[neg_type][type][formula].copy()
+                    for query in queries:
+                        if invalid_ids(query, data['geo_ids']):
+                            valid_queries[neg_type][type][formula].remove(query)
+                            removed_counter += 1
+
+        data['valid_queries']['full_neg'].update(valid_queries['full_neg'])
+        data['valid_queries']['one_neg'].update(valid_queries['one_neg'])
+
+    print(f'Removed {removed_counter} validation queries')
+
+    # for file in os.listdir(test_path):
+    #     print(f'\t{file}')
+    #     x = load_test_queries_by_formula(test_path + file)
+    #     data['test_queries']['full_neg'].update(x['full_neg'])
+    #     data['test_queries']['one_neg'].update(x['one_neg'])
 
     return data
+
+
+def invalid_ids(query, geo_ids):
+    # Check query ids
+    query_ids = query.anchor_nodes + [query.target_node]
+
+    if query.hard_neg_samples is not None:
+        query_ids += query.hard_neg_samples
+    if query.neg_samples is not None:
+        query_ids += query.neg_samples
+
+    if not all(int(id) in geo_ids for id in query_ids):
+        return True
+    else:
+        return False
 
 
 def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_embed_dim, do_train):
     out_dims = feat_embed_dim + spa_embed_dim
     types = [type for type in graph.relations]
 
+    if 'se-kge' in data_path:
+        geo_info = pickle_load(data_path + 'id2geo_proj.pkl')
+        geo_info = {str(key): geo_info[key] for key in geo_info.keys()}
+        geo_info_ext = pickle_load(data_path + 'id2extent_proj.pkl')
+        geo_info_ext = {
+            str(key): [[geo_info_ext[key][0], geo_info_ext[key][1]], [geo_info_ext[key][2], geo_info_ext[key][3]]] for
+            key in geo_info_ext.keys()}
+    else:
+        geo_info = read_id2geo(data_path + 'id2geo.json')
+        geo_info_ext = read_id2extent(data_path + 'id2geo.json')
+
     print('Creating Encoder Operator..')
     # encoder
     feat_enc = DirectEncoder(graph.features, feature_modules)
     ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=64, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
     spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=64, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
-    pos_enc = ExtentPositionEncoder(id2geo=read_id2geo(data_path + 'id2geo.json'), id2extent=read_id2extent(data_path + 'id2geo.json'), spa_enc=spa_enc, graph=graph)
+    pos_enc = ExtentPositionEncoder(id2geo=geo_info, id2extent=geo_info_ext, spa_enc=spa_enc, graph=graph)
     enc = NodeEncoder(feat_enc, pos_enc, agg_type='concat')
 
     print('Creating Projection Operator..')
