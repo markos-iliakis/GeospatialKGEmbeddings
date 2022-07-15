@@ -124,7 +124,19 @@ def read_id2extent(in_path):
 
 
 def read_graph(graph_path):
-    [feature_dims, relations, adj_lists, feature_modules, node_maps, inv_rel, id2type] = pickle_load(graph_path)
+    if 'se-kge' in graph_path:
+        [relations, adj_lists, node_maps, inv_rel] = pickle_load(graph_path)
+
+        # make correct node maps
+        node_maps = {m: {str(n): i for i, n in enumerate(id_list)} for m, id_list in node_maps.items()}
+
+        # make feature dims
+        feature_dims = {m: feat_embed_dim for m in relations}
+
+        with open(graph_path.replace('graph.pkl', 'id2type.json')) as json_file:
+            id2type = json.load(json_file)
+    elif 'yago2geo' in graph_path:
+        [feature_dims, relations, adj_lists, node_maps, inv_rel, id2type] = pickle_load(graph_path)
 
     def features(nodes, e_type):
         return feature_modules[e_type](
