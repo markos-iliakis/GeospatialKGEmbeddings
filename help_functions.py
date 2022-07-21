@@ -305,7 +305,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         # Update weights
         optimizer.step()
 
-        if iteration % 100 == 0:
+        if iteration % 1000 == 0:
             # Validate
             print('Validating..')
             aucs, aprs = test(model, val_queries)
@@ -401,9 +401,6 @@ def test(model, queries, batch_size=2048):
                 #                batch_scores[N:] correspond to cos score for each negative query-target which append in order, the total number of scores is sum(lengths)
                 batch_scores = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
                 batch_scores = batch_scores.data.tolist()
-
-                # invert distances
-                batch_scores = [x for x in batch_scores]
 
                 # Percentile rank score: Given a query, one positive target cos score p, x negative target, and their cos score [n1, n2, ..., nx], See the rank of p in [n1, n2, ..., nx]
                 batch_perc_scores = []  # a list of percentile rank scores per query, APR is the average of all these scores

@@ -9,7 +9,7 @@ if __name__ == '__main__':
     batch_size = 2048
     feat_embed_dim = 64
     spa_embed_dim = 64
-    max_iter = 20000
+    max_iter = 22100
     lr = 0.01
 
     # Load Data

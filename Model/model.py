@@ -191,7 +191,7 @@ class QueryEncoderDecoder(nn.Module):
         if hard_negatives:
             neg_nodes = [random.choice(query.hard_neg_samples) for query in queries]
         elif formula.query_type == "1-chain":
-            neg_nodes = [random.choice(self.graph.full_lists[formula.target_type]) for _ in queries]
+            neg_nodes = [str(random.choice(self.graph.full_lists[formula.target_type])) for _ in queries]
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
@@ -210,7 +210,7 @@ class QueryEncoderDecoder(nn.Module):
         elif hard_negatives:
             neg_nodes = [random.choice(query.hard_neg_samples) for query in queries]
         elif formula.query_type == "1-chain":
-            neg_nodes = [random.choice(self.graph.full_lists[formula.target_type]) for _ in queries]
+            neg_nodes = [str(random.choice(self.graph.full_lists[formula.target_type])) for _ in queries]
         else:
             neg_nodes = [random.choice(query.neg_samples) for query in queries]
 
