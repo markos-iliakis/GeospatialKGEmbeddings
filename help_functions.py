@@ -224,7 +224,7 @@ def train(model, optimizer, batch_size, train_queries, val_queries, max_iter):
         # Update weights
         optimizer.step()
 
-        if iteration % 100 == 0:
+        if iteration % 1000 == 0:
             # Validate
             print('Validating..')
             aucs, aprs = test(model, val_queries)
