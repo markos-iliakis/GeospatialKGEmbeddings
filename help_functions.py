@@ -131,8 +131,8 @@ def create_architecture(data_path, graph, feature_modules, feat_embed_dim, spa_e
     print('Creating Encoder Operator..')
     # encoder
     feat_enc = DirectEncoder(graph.features, feature_modules)
-    ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=64, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
-    spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=64, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
+    ffn = MultiLayerFeedForwardNN(input_dim=6 * 16, output_dim=feat_embed_dim, num_hidden_layers=1, dropout_rate=0.5, hidden_dim=512, use_layernormalize=True, skip_connection=True)
+    spa_enc = TheoryGridCellSpatialRelationEncoder(spa_embed_dim=spa_embed_dim, coord_dim=2, frequency_num=16, max_radius=5400000, min_radius=50, freq_init='geometric', ffn=ffn)
     pos_enc = ExtentPositionEncoder(id2geo=read_id2geo(data_path + 'id2geo.json'), id2extent=read_id2extent(data_path + 'id2geo.json'), spa_enc=spa_enc, graph=graph)
     enc = NodeEncoder(feat_enc, pos_enc, agg_type='concat')
 
@@ -263,40 +263,40 @@ def test(model, queries, batch_size=2048):
 
     for query_type in query_types:
 
-        # Use Area Under ROC Curve (AUC) metric for current query type
-        labels = []
-        predictions = []
-        for formula in queries["one_neg"][query_type]:
-            formula_queries = queries["one_neg"][query_type][formula]
-            formula_labels = []
-            formula_predictions = []
-
-            # split the formula_queries into batches, add collect their ground truth and prediction scores
-            offset = 0
-            while offset < len(formula_queries):
-
-                # Get the queries of the batch
-                max_index = min(offset + batch_size, len(formula_queries))
-                batch_queries = formula_queries[offset:max_index]
-
-                # Get one random negative sample for batch size entities
-                lengths = [1 for j in range(offset, max_index)]
-                negatives = [random.choice(formula_queries[j].neg_samples) for j in range(offset, max_index)]
-
-                offset += batch_size
-
-                labels.extend([1 for _ in range(len(lengths))])
-                formula_labels.extend([0 for _ in range(len(negatives))])
-
-                # Get the scores of the batch
-                batch_scores = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
-                batch_scores = batch_scores.data.tolist()
-                formula_predictions.extend(batch_scores)
-
-            labels.extend(formula_labels)
-            predictions.extend(formula_predictions)
-
-        auc = roc_auc_score(labels, np.nan_to_num(predictions))
+        # # Use Area Under ROC Curve (AUC) metric for current query type
+        # labels = []
+        # predictions = []
+        # for formula in queries["one_neg"][query_type]:
+        #     formula_queries = queries["one_neg"][query_type][formula]
+        #     formula_labels = []
+        #     formula_predictions = []
+        #
+        #     # split the formula_queries into batches, add collect their ground truth and prediction scores
+        #     offset = 0
+        #     while offset < len(formula_queries):
+        #
+        #         # Get the queries of the batch
+        #         max_index = min(offset + batch_size, len(formula_queries))
+        #         batch_queries = formula_queries[offset:max_index]
+        #
+        #         # Get one random negative sample for batch size entities
+        #         lengths = [1 for j in range(offset, max_index)]
+        #         negatives = [random.choice(formula_queries[j].neg_samples) for j in range(offset, max_index)]
+        #
+        #         offset += batch_size
+        #
+        #         labels.extend([1 for _ in range(len(lengths))])
+        #         formula_labels.extend([0 for _ in range(len(negatives))])
+        #
+        #         # Get the scores of the batch
+        #         batch_scores = model.forward(formula, batch_queries + [b for i, b in enumerate(batch_queries) for _ in range(lengths[i])], [q.target_node for q in batch_queries] + negatives)
+        #         batch_scores = batch_scores.data.tolist()
+        #         formula_predictions.extend(batch_scores)
+        #
+        #     labels.extend(formula_labels)
+        #     predictions.extend(formula_predictions)
+        #
+        # auc = roc_auc_score(labels, np.nan_to_num(predictions))
 
         # Use average percentile rank (APR) metric for current query type
         perc_scores = []

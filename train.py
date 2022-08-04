@@ -7,8 +7,8 @@ from help_functions import create_paths, create_architecture, train, load_data
 
 if __name__ == '__main__':
     batch_size = 2048
-    feat_embed_dim = 128
-    spa_embed_dim = 128
+    feat_embed_dim = 64
+    spa_embed_dim = 64
     max_iter = 22100
     lr = 0.01
 
